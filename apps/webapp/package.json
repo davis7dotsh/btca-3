@@ -16,6 +16,7 @@
     "@btca/autumn": "workspace:*",
     "@btca/convex": "workspace:*",
     "@effect/platform-node": "^4.0.0-beta.36",
+    "@lucide/svelte": "catalog:",
     "@mariozechner/pi-agent-core": "^0.57.1",
     "@mariozechner/pi-ai": "^0.57.1",
     "@opencode-ai/sdk": "^1.2.27",

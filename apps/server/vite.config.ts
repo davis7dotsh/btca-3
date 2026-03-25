@@ -1,16 +1,20 @@
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
-  build: {
-    outDir: "dist",
-    ssr: "src/index.ts",
-    target: "node22",
+  pack: {
+    entry: ["src/index.ts", "src/server.ts"],
+    dts: {
+      tsgo: true,
+    },
   },
   lint: {
+    ignorePatterns: ["dist/**"],
     options: {
       typeAware: true,
       typeCheck: true,
     },
   },
-  fmt: {},
+  fmt: {
+    ignorePatterns: ["dist/**"],
+  },
 });

@@ -1437,6 +1437,7 @@
 		const userMessageId = createId();
 		const assistantId = createId();
 		const nextUserSequence = getThreadPersistedMessageCount(activeThreadId);
+		const shouldScrollToSubmittedMessage = nextUserSequence > 0;
 
 		messages = [
 			...messages,
@@ -1461,10 +1462,12 @@
 			draft = '';
 		}
 
-		await tick();
-		scrollContainer
-			?.querySelector(`[data-message-id="${userMessageId}"]`)
-			?.scrollIntoView({ behavior: 'instant', block: 'start' });
+		if (shouldScrollToSubmittedMessage) {
+			await tick();
+			scrollContainer
+				?.querySelector(`[data-message-id="${userMessageId}"]`)
+				?.scrollIntoView({ behavior: 'instant', block: 'start' });
+		}
 
 		try {
 			const response = await fetch(resolvedAgentApiPath, {
