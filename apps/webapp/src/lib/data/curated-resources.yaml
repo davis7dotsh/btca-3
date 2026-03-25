@@ -1,0 +1,154 @@
+resources:
+  - name: Svelte
+    slug: svelte
+    displayName: Svelte ecosystem
+    logoKey: svelte
+    notes: Official Svelte docs, packages, and adjacent utilities for framework and runes questions.
+    items:
+      - kind: git_repo
+        name: Svelte docs repo
+        description: Official Svelte documentation and site content. Use for guides, examples, and API details.
+        url: https://github.com/sveltejs/svelte.dev
+        branch: main
+        searchPaths:
+          - apps/svelte.dev
+      - kind: npm_package
+        name: Svelte package
+        description: Core Svelte npm package for framework APIs and package-level behavior.
+        packageName: svelte
+      - kind: git_repo
+        name: Runed
+        description: Useful utilities and patterns for modern Svelte apps.
+        url: https://github.com/svecosystem/runed
+        branch: main
+
+  - name: SvelteKit
+    slug: sveltekit
+    displayName: SvelteKit docs
+    logoKey: svelte
+    notes: Official SvelteKit references for routing, load functions, forms, adapters, and deployment.
+    items:
+      - kind: git_repo
+        name: SvelteKit repo
+        description: Official SvelteKit repository with documentation and implementation details.
+        url: https://github.com/sveltejs/kit
+        branch: main
+        searchPath: documentation
+      - kind: npm_package
+        name: SvelteKit package
+        description: Main SvelteKit package for config, adapters, and runtime integrations.
+        packageName: "@sveltejs/kit"
+
+  - name: Convex
+    slug: convex
+    displayName: Convex stack
+    logoKey: convex
+    notes: Official Convex docs and client code for queries, mutations, schema, auth, and deployment patterns.
+    items:
+      - kind: git_repo
+        name: Convex docs
+        description: Official Convex documentation for schema, functions, deployment, and platform guidance.
+        url: https://github.com/get-convex/convex-docs
+        branch: main
+        specialNotes: Official Convex documentation. Use for HTTP actions, queries, mutations, schema, and deployment guidance.
+      - kind: git_repo
+        name: Convex JS client
+        description: Convex JavaScript client source for API behavior and app integration details.
+        url: https://github.com/get-convex/convex-js
+        branch: main
+      - kind: website
+        name: Convex docs site
+        description: Public docs site for quick website grounding when repo source is not enough.
+        url: https://docs.convex.dev
+
+  - name: Tailwind CSS
+    slug: tailwind
+    displayName: Tailwind CSS
+    logoKey: tailwind
+    notes: Utility classes, theme configuration, and docs examples for styling work.
+    items:
+      - kind: git_repo
+        name: Tailwind docs repo
+        description: Tailwind CSS docs source for utilities, configuration, and framework guides.
+        url: https://github.com/tailwindlabs/tailwindcss.com
+        branch: main
+        searchPath: src/docs
+      - kind: npm_package
+        name: Tailwind CSS package
+        description: Core Tailwind CSS package.
+        packageName: tailwindcss
+
+  - name: Vite
+    slug: vite
+    displayName: Vite
+    logoKey: vite
+    notes: Build, plugin, and dev-server references for modern frontend tooling.
+    items:
+      - kind: git_repo
+        name: Vite repo
+        description: Vite docs and implementation details for config, plugin APIs, and build behavior.
+        url: https://github.com/vitejs/vite
+        branch: main
+        searchPath: docs
+      - kind: npm_package
+        name: Vite package
+        description: Main Vite package for config and dev server behavior.
+        packageName: vite
+
+  - name: Hono
+    slug: hono
+    displayName: Hono
+    logoKey: hono
+    notes: Lightweight web framework references for routes, middleware, validation, and edge/server runtimes.
+    items:
+      - kind: git_repo
+        name: Hono docs repo
+        description: Hono website and docs content for routing and middleware examples.
+        url: https://github.com/honojs/website
+        branch: main
+        searchPath: docs
+      - kind: npm_package
+        name: Hono package
+        description: Main Hono framework package.
+        packageName: hono
+
+  - name: Zod
+    slug: zod
+    displayName: Zod
+    logoKey: zod
+    notes: Schema validation and inference references for TypeScript-heavy codebases.
+    items:
+      - kind: git_repo
+        name: Zod docs repo
+        description: Zod repo and docs content for schema composition, parsing, and inference.
+        url: https://github.com/colinhacks/zod
+        branch: main
+        searchPath: packages/docs/content
+      - kind: npm_package
+        name: Zod package
+        description: Main Zod package for runtime validation and static type inference.
+        packageName: zod
+
+  - name: OpenCode
+    slug: opencode
+    displayName: OpenCode
+    logoKey: opencode
+    notes: Helpful for MCP setup, tool behavior, and implementation details in the OpenCode stack.
+    items:
+      - kind: git_repo
+        name: OpenCode repo
+        description: OpenCode source for understanding tool behavior, MCP setup, and implementation details.
+        url: https://github.com/anomalyco/opencode
+        branch: dev
+
+  - name: Daytona
+    slug: daytona
+    displayName: Daytona
+    logoKey: daytona
+    notes: Sandbox, workspace, and platform references from the Daytona codebase.
+    items:
+      - kind: git_repo
+        name: Daytona repo
+        description: Full Daytona codebase. Focus on guides and examples for sandbox and workspace answers.
+        url: https://github.com/daytonaio/daytona
+        branch: main

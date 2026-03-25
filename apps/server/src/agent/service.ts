@@ -102,13 +102,38 @@ const extractAssistantText = (message: Message | undefined) => {
     .join("\n\n");
 };
 
-const buildModel = (args: { modelId: string; baseUrl: string; providerName?: string }) =>
-  ({
+const buildModel = (args: {
+  modelId: string;
+  provider: string;
+  baseUrl?: string;
+  providerName?: string;
+}): Model<"openai-responses"> | Model<"openai-codex-responses"> => {
+  if (args.provider === "openai-codex") {
+    return {
+      id: args.modelId,
+      name: args.providerName ?? args.modelId,
+      api: "openai-codex-responses",
+      provider: "openai-codex",
+      baseUrl: args.baseUrl ?? "https://chatgpt.com/backend-api",
+      reasoning: true,
+      input: ["text"],
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+      },
+      contextWindow: 128_000,
+      maxTokens: 128_000,
+    } satisfies Model<"openai-codex-responses">;
+  }
+
+  return {
     id: args.modelId,
     name: args.providerName ?? args.modelId,
     api: "openai-responses",
     provider: "openai",
-    baseUrl: args.baseUrl,
+    baseUrl: args.baseUrl ?? "https://api.openai.com/v1",
     reasoning: true,
     input: ["text"],
     cost: {
@@ -119,7 +144,8 @@ const buildModel = (args: { modelId: string; baseUrl: string; providerName?: str
     },
     contextWindow: 128_000,
     maxTokens: 128_000,
-  }) satisfies Model<"openai-responses">;
+  } satisfies Model<"openai-responses">;
+};
 
 const buildSystemPrompt = (workspaceDir: string) =>
   [
@@ -143,7 +169,7 @@ export class AgentError extends Data.TaggedError("AgentError")<{
 type RunAgentResult = {
   readonly threadId: string;
   readonly workspaceDir: string;
-  readonly provider: "openai";
+  readonly provider: string;
   readonly modelId: string;
   readonly resourceNames: readonly string[];
   readonly answer: string;
@@ -153,7 +179,7 @@ type RunAgentResult = {
 type StreamAgentResult = {
   readonly threadId: string;
   readonly workspaceDir: string;
-  readonly provider: "openai";
+  readonly provider: string;
   readonly modelId: string;
   readonly resourceNames: readonly string[];
   readonly events: AsyncIterable<AgentEvent>;
@@ -395,11 +421,12 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
             {
               model: buildModel({
                 modelId: selectedModelId,
+                provider: modelAuth.provider,
                 baseUrl: modelAuth.baseUrl,
                 providerName: modelAuth.providerName,
               }),
               sessionId: resolvedThreadId,
-              getApiKey: () => modelAuth.apiKey,
+              getApiKey: () => modelAuth.token,
               convertToLlm: (messages) =>
                 messages.filter(
                   (message) =>
@@ -426,7 +453,7 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
         threadId: string;
         preview: string;
         modelId: string;
-        provider: "openai";
+        provider: string;
         workspaceDir: string;
         rawEvents: AsyncIterable<AgentEvent>;
       }) =>

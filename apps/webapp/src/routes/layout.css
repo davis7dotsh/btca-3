@@ -417,6 +417,167 @@
       18px 18px;
   }
 
+  .bc-sidebar-shell {
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklab, hsl(var(--bc-surface)) 88%, transparent),
+      hsl(var(--bc-bg))
+    );
+  }
+
+  .bc-sidebar-section {
+    padding: 16px;
+    border-bottom: 1px solid hsl(var(--bc-border));
+  }
+
+  .bc-sidebar-search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid hsl(var(--bc-border));
+    background: color-mix(in oklab, hsl(var(--bc-surface)) 92%, transparent);
+    color: hsl(var(--bc-fg));
+    cursor: pointer;
+    transition:
+      border-color 120ms ease,
+      background 120ms ease,
+      box-shadow 120ms ease;
+  }
+
+  .bc-sidebar-search:hover {
+    border-color: color-mix(in oklab, hsl(var(--bc-fg)) 18%, hsl(var(--bc-border)));
+    background: hsl(var(--bc-surface-2));
+    box-shadow: 0 1px 0 color-mix(in oklab, hsl(var(--bc-border)) 80%, transparent);
+  }
+
+  .bc-sidebar-search-input {
+    min-width: 0;
+    flex: 1;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 500;
+    color: hsl(var(--bc-fg-muted));
+  }
+
+  .bc-sidebar-kbd,
+  .bc-commandPaletteKey {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 1.8rem;
+    padding: 2px 6px;
+    border: 1px solid hsl(var(--bc-border));
+    background: hsl(var(--bc-surface));
+    color: hsl(var(--bc-fg-muted));
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .bc-threadItem {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid transparent;
+    background: transparent;
+    transition:
+      border-color 120ms ease,
+      background 120ms ease,
+      box-shadow 120ms ease;
+  }
+
+  .bc-threadItem:hover {
+    border-color: color-mix(in oklab, hsl(var(--bc-fg)) 12%, hsl(var(--bc-border)));
+    background: color-mix(in oklab, hsl(var(--bc-surface-2)) 82%, transparent);
+  }
+
+  .bc-threadItem-active {
+    border-color: color-mix(in oklab, hsl(var(--bc-accent)) 45%, hsl(var(--bc-border)));
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklab, hsl(var(--bc-accent)) 10%, hsl(var(--bc-surface))),
+      hsl(var(--bc-surface))
+    );
+  }
+
+  .bc-threadItemDelete {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: hsl(var(--bc-fg-muted));
+    cursor: pointer;
+    opacity: 0;
+    transition:
+      opacity 120ms ease,
+      color 120ms ease,
+      background 120ms ease;
+  }
+
+  .group:hover .bc-threadItemDelete,
+  .bc-threadItemDelete:focus-visible {
+    opacity: 1;
+  }
+
+  .bc-threadItemDelete:hover {
+    background: hsl(var(--bc-surface));
+    color: hsl(var(--bc-error));
+  }
+
+  .bc-sidebar-footer {
+    margin-top: auto;
+    background: linear-gradient(
+      180deg,
+      transparent,
+      color-mix(in oklab, hsl(var(--bc-surface)) 80%, transparent)
+    );
+  }
+
+  .bc-commandPaletteItem {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: calc(100% - 16px);
+    margin: 0 8px;
+    padding: 10px 12px;
+    border-left: 2px solid transparent;
+    text-align: left;
+    transition:
+      border-color 120ms ease,
+      background 120ms ease;
+  }
+
+  .bc-commandPaletteItem:hover {
+    background: hsl(var(--bc-surface-2));
+  }
+
+  .bc-commandPaletteItem-active {
+    border-left-color: hsl(var(--bc-accent));
+    background: hsl(var(--bc-surface-2));
+  }
+
+  .bc-commandPaletteIcon {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid hsl(var(--bc-border));
+    background: hsl(var(--bc-surface));
+    color: hsl(var(--bc-fg-muted));
+  }
+
+  .bc-commandPaletteIcon-active {
+    border-color: color-mix(in oklab, hsl(var(--bc-accent)) 35%, hsl(var(--bc-border)));
+    color: hsl(var(--bc-accent));
+  }
+
   .chat-message {
     display: flex;
     flex-direction: column;

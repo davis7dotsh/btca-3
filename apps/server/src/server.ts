@@ -13,10 +13,21 @@ import * as HttpServer from "effect/unstable/http/HttpServer";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as Http from "node:http";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
+export {
+  AUTH_FILE_PATH,
+  AUTH_FILE_VERSION,
+  SUPPORTED_AUTH_PROVIDERS,
+  isAuthProviderId,
+  type AuthProviderId,
+  type AuthProviderState,
+  type AuthState,
+  type ResolvedProviderCredentials,
+} from "./auth/service.ts";
+export { getOAuthProvider, type OAuthLoginCallbacks } from "@mariozechner/pi-ai/oauth";
 import { ConfigLive } from "./config.ts";
 import { AgentService, AgentError } from "./agent/service.ts";
 import { AgentThreadStore, ThreadStoreError } from "./agent/threads.ts";
-import { AuthError, AuthService } from "./auth/service.ts";
+import { AuthError, AuthService, isAuthProviderId } from "./auth/service.ts";
 import { Config, ConfigError } from "./config.ts";
 import { ResourceError, ResourcesService } from "./resources/service.ts";
 import { WorkspaceError, WorkspaceService } from "./workspace/service.ts";
@@ -32,8 +43,12 @@ export interface HelloResponse {
   readonly message: string;
 }
 
-const OpenAiApiKeyInput = Schema.Struct({
+const ApiKeyLoginInput = Schema.Struct({
   apiKey: Schema.NonEmptyString,
+});
+
+const AuthProviderPathParams = Schema.Struct({
+  provider: Schema.NonEmptyString,
 });
 
 const AgentRunInput = Schema.Struct({
@@ -65,6 +80,16 @@ const getErrorMessage = (error: unknown) => {
   if (error instanceof AgentError) return error.message;
   if (error instanceof Error) return error.message;
   return String(error);
+};
+
+const parseAuthProvider = (value: string) => {
+  if (!isAuthProviderId(value)) {
+    throw new AuthError({
+      message: `Unsupported provider "${value}".`,
+    });
+  }
+
+  return value;
 };
 
 const getErrorStatus = (error: unknown) => {
@@ -180,12 +205,16 @@ export const RoutesLive = Layer.mergeAll(
   ),
   HttpRouter.add(
     "POST",
-    "/auth/openai",
+    "/auth/:provider",
     handleJsonRoute(
       Effect.gen(function* () {
-        const body = yield* HttpServerRequest.schemaBodyJson(OpenAiApiKeyInput);
+        const params = yield* HttpRouter.schemaPathParams(AuthProviderPathParams);
+        const body = yield* HttpServerRequest.schemaBodyJson(ApiKeyLoginInput);
         const auth = yield* AuthService;
-        yield* auth.setApiKey(body.apiKey);
+        yield* auth.login({
+          provider: parseAuthProvider(params.provider),
+          apiKey: body.apiKey,
+        });
         return {
           auth: yield* auth.getAuthState,
         };
@@ -194,11 +223,12 @@ export const RoutesLive = Layer.mergeAll(
   ),
   HttpRouter.add(
     "DELETE",
-    "/auth/openai",
+    "/auth/:provider",
     handleJsonRoute(
       Effect.gen(function* () {
+        const params = yield* HttpRouter.schemaPathParams(AuthProviderPathParams);
         const auth = yield* AuthService;
-        yield* auth.clearApiKey;
+        yield* auth.logout(parseAuthProvider(params.provider));
         return {
           auth: yield* auth.getAuthState,
         };

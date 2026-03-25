@@ -108,6 +108,39 @@ const itemArgs = {
   packageName: v.optional(v.string()),
 };
 
+const createResourceRecord = async ({
+  ctx,
+  userId,
+  name,
+  slug,
+  notes,
+}: {
+  ctx: AuthedMutationCtx;
+  userId: string;
+  name: string;
+  slug: string;
+  notes?: string;
+}) => {
+  const now = Date.now();
+  const createdBy = createCurator(userId);
+  const resourceId = await ctx.db.insert("resources", {
+    userId,
+    name,
+    slug,
+    notes,
+    createdAt: now,
+    updatedAt: now,
+    createdBy,
+    updatedBy: createdBy,
+  });
+
+  return {
+    resourceId,
+    now,
+    createdBy,
+  };
+};
+
 export const list = authedQuery({
   args: {},
   handler: async (ctx) => {
@@ -204,18 +237,66 @@ export const create = authedMutation({
       await ensureUniqueSlug({ ctx, userId, slug: requestedSlug });
     }
 
-    const now = Date.now();
-    const createdBy = createCurator(userId);
-    const resourceId = await ctx.db.insert("resources", {
+    const { resourceId } = await createResourceRecord({
+      ctx,
       userId,
       name,
       slug,
       notes,
-      createdAt: now,
-      updatedAt: now,
-      createdBy,
-      updatedBy: createdBy,
     });
+
+    return {
+      resourceId,
+    };
+  },
+});
+
+export const createWithItems = authedMutation({
+  args: {
+    name: v.string(),
+    slug: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    items: v.array(v.object(itemArgs)),
+  },
+  handler: async (ctx, args) => {
+    const userId = getUserId(ctx.identity);
+    const name = normalizeResourceName(args.name);
+    const requestedSlug = args.slug?.trim() ? normalizeResourceSlug(args.slug) : undefined;
+    const slug = requestedSlug ?? (await createUniqueSlug(ctx, userId, name));
+    const notes = args.notes?.trim() ? normalizeResourceDescription(args.notes) : undefined;
+
+    if (!name) {
+      throw new Error("Expected a resource name.");
+    }
+
+    if (args.items.length === 0) {
+      throw new Error("Expected at least one resource item.");
+    }
+
+    if (requestedSlug) {
+      await ensureUniqueSlug({ ctx, userId, slug: requestedSlug });
+    }
+
+    const normalizedItems = args.items.map((item) => buildResourceItemFields(item));
+    const { resourceId, now, createdBy } = await createResourceRecord({
+      ctx,
+      userId,
+      name,
+      slug,
+      notes,
+    });
+
+    for (const [index, item] of normalizedItems.entries()) {
+      await ctx.db.insert("resourceItems", {
+        resourceId,
+        sortOrder: index,
+        createdAt: now,
+        updatedAt: now,
+        createdBy,
+        updatedBy: createdBy,
+        ...item,
+      });
+    }
 
     return {
       resourceId,

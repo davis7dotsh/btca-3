@@ -1,4 +1,20 @@
 <script lang="ts">
+	import {
+		BookOpen,
+		ChevronDown,
+		Command,
+		CreditCard,
+		LifeBuoy,
+		MessageSquare,
+		Moon,
+		PanelLeftClose,
+		Plus,
+		Server,
+		Settings,
+		Sparkles,
+		Sun,
+		Trash2
+	} from '@lucide/svelte';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -8,6 +24,18 @@
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 	import { theme } from '$lib/stores/theme.svelte';
 	import type { AgentThreadListItem } from '$lib/types/agent';
+
+	interface Props {
+		isOpen?: boolean;
+		onOpenCommandPalette?: () => void;
+		onClose?: () => void;
+	}
+
+	let {
+		isOpen = false,
+		onOpenCommandPalette = () => {},
+		onClose = () => {}
+	}: Props = $props();
 
 	const authContext = getAuthContext();
 	const convex = useConvexClient();
@@ -36,6 +64,7 @@
 	const resourcesPath = resolve('/app/resources');
 	const settingsPath = resolve('/app/settings');
 	const billingPath = resolve('/app/billing');
+	const appHomePath = resolve('/app');
 	const isOnPiChat = $derived(
 		page.url.pathname === chatPath || page.url.pathname.startsWith(`${chatPath}/`)
 	);
@@ -63,10 +92,12 @@
 			noScroll: true,
 			keepFocus: true
 		});
+		onClose();
 	}
 
 	function newThread() {
 		void goto(activeChatPath, { noScroll: true, keepFocus: true });
+		onClose();
 	}
 
 	async function deleteThread(targetThreadId: string) {
@@ -94,19 +125,59 @@
 </script>
 
 <aside
-	class="flex w-56 shrink-0 flex-col border-r border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface))]"
+	class="bc-sidebar-shell flex h-full min-h-0 flex-col"
 >
-	<div class="px-3 pt-3">
-		<a href={chatPath} class={['bc-btn justify-center text-xs', isOnPiChat && 'bc-btn-primary']}>
-			Chat
-		</a>
+	<div class="bc-sidebar-section">
+		<div class="flex items-start justify-between gap-3">
+			<a href={appHomePath} class="bc-chip w-full justify-start" onclick={onClose}>
+				<div class="bc-logoMark h-11 w-11 text-[hsl(var(--bc-accent))]">
+					<Sparkles size={16} />
+				</div>
+				<div class="min-w-0">
+					<div class="bc-title text-sm">btca web</div>
+					<div class="bc-subtitle text-[11px]">search agent</div>
+				</div>
+			</a>
+
+			{#if isOpen}
+				<button
+					type="button"
+					class="bc-iconBtn shrink-0 lg:hidden"
+					onclick={onClose}
+					aria-label="Close sidebar"
+				>
+					<PanelLeftClose size={16} />
+				</button>
+			{/if}
+		</div>
 	</div>
 
-	<div class="px-3 pt-2 pb-1">
-		<button type="button" class="bc-btn w-full" onclick={newThread}> New thread </button>
+	<div class="bc-sidebar-section">
+		<button type="button" class="bc-btn bc-btn-primary w-full py-2.5 text-xs" onclick={newThread}>
+			<Plus size={14} />
+			New thread
+		</button>
+
+		<button
+			type="button"
+			class="bc-sidebar-search mt-3 w-full"
+			onclick={onOpenCommandPalette}
+			aria-label="Open command palette"
+		>
+			<Command size={14} class="shrink-0 text-[hsl(var(--bc-fg-muted))]" />
+			<span class="bc-sidebar-search-input pointer-events-none select-none">Search actions</span>
+			<kbd class="bc-sidebar-kbd">⌘K</kbd>
+		</button>
 	</div>
 
-	<div class="bc-scrollbar flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3 py-2 pr-2">
+	<div class="bc-sidebar-section min-h-0 flex-1 border-b-0 pb-0">
+		<div class="mb-3 flex items-center gap-2">
+			<div class="text-[10px] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--bc-fg-muted))]">
+				Recent Threads
+			</div>
+		</div>
+
+		<div class="bc-scrollbar flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
 		{#if threadsQuery.isLoading}
 			<div class="p-3 text-xs text-[hsl(var(--bc-fg-muted))]">Loading...</div>
 		{:else if threadsQuery.error}
@@ -118,22 +189,25 @@
 		{:else}
 			{#each threadItems as thread (thread.threadId)}
 				<div
-					class="thread-item group"
-					class:thread-item-active={isOnAnyChat && thread.threadId === currentThreadId}
+					class={[
+						'bc-threadItem group',
+						isOnAnyChat && thread.threadId === currentThreadId && 'bc-threadItem-active'
+					]}
 				>
 					<button
 						type="button"
-						class="thread-item-body"
+						class="min-w-0 flex-1 bg-transparent p-0 text-left"
 						onclick={() => openThread(thread.threadId)}
 					>
-						<div class="truncate text-xs font-medium text-[hsl(var(--bc-fg))]">
+						<div class="truncate text-sm font-medium text-[hsl(var(--bc-fg))]">
 							{getThreadLabel(thread)}
 						</div>
-						<div class="mt-0.5 text-[11px] text-[hsl(var(--bc-fg-muted))]">
-							{thread.messageCount} msgs · {formatTimestamp(thread.updatedAt)}
+						<div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[hsl(var(--bc-fg-muted))]">
+							<span>{formatTimestamp(thread.updatedAt)}</span>
+							<span>{thread.messageCount} msgs</span>
 							{#if thread.isMcp}
 								<span
-									class="ml-1 inline-flex items-center border border-[hsl(var(--bc-border))] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.14em] text-[hsl(var(--bc-accent))] uppercase"
+									class="inline-flex items-center border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface))] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.14em] text-[hsl(var(--bc-accent))] uppercase"
 								>
 									MCP
 								</span>
@@ -144,18 +218,14 @@
 					<div class="relative shrink-0">
 						<button
 							type="button"
-							class="thread-menu-trigger"
+							class="bc-threadItemDelete"
 							aria-label="Thread options"
 							onclick={(e) => {
 								e.stopPropagation();
 								threadMenuOpen = threadMenuOpen === thread.threadId ? null : thread.threadId;
 							}}
 						>
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-								<circle cx="12" cy="5" r="2" />
-								<circle cx="12" cy="12" r="2" />
-								<circle cx="12" cy="19" r="2" />
-							</svg>
+							<Trash2 size={14} />
 						</button>
 
 						{#if threadMenuOpen === thread.threadId}
@@ -179,42 +249,38 @@
 				</div>
 			{/each}
 		{/if}
+		</div>
 	</div>
 
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class="relative border-t border-[hsl(var(--bc-border))] px-3 py-3"
+		class="bc-sidebar-footer relative border-t border-[hsl(var(--bc-border))] px-4 py-3"
 		onkeydown={handleUserMenuKeydown}
 	>
 		<button
 			type="button"
-			class="flex w-full items-center gap-2.5 text-left transition hover:opacity-80"
+			class="bc-chip w-full justify-start gap-3 text-left"
 			onclick={() => (userMenuOpen = !userMenuOpen)}
 		>
 			{#if profilePicture}
-				<img src={profilePicture} alt="" class="h-7 w-7 shrink-0 object-cover" />
+				<img src={profilePicture} alt="" class="h-9 w-9 shrink-0 object-cover" />
 			{:else}
 				<div
-					class="grid h-7 w-7 shrink-0 place-items-center border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface-2))] text-[10px] font-bold text-[hsl(var(--bc-fg-muted))] uppercase"
+					class="grid h-9 w-9 shrink-0 place-items-center border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface-2))] text-[11px] font-bold text-[hsl(var(--bc-fg-muted))] uppercase"
 				>
 					{displayName.charAt(0)}
 				</div>
 			{/if}
-			<span class="min-w-0 flex-1 truncate text-sm font-medium">{displayName}</span>
-			<svg
-				class="shrink-0 text-[hsl(var(--bc-fg-muted))] transition-transform duration-150"
-				class:rotate-180={userMenuOpen}
-				width="12"
-				height="12"
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				stroke-width="2.5"
-				stroke-linecap="round"
-				stroke-linejoin="round"
-			>
-				<path d="m6 9 6 6 6-6" />
-			</svg>
+			<div class="min-w-0 flex-1">
+				<div class="truncate text-sm font-medium">{displayName}</div>
+				<div class="truncate text-[11px] text-[hsl(var(--bc-fg-muted))]">
+					Account and preferences
+				</div>
+			</div>
+			<ChevronDown
+				size={14}
+				class={['shrink-0 text-[hsl(var(--bc-fg-muted))] transition-transform duration-150', userMenuOpen && 'rotate-180']}
+			/>
 		</button>
 
 		{#if userMenuOpen}
@@ -223,74 +289,24 @@
 			<div class="fixed inset-0 z-40" onclick={() => (userMenuOpen = false)}></div>
 			<div class="user-menu-dropdown">
 				<a href={resourcesPath} class="user-menu-item" onclick={() => (userMenuOpen = false)}>
-					<svg
-						width="14"
-						height="14"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					>
-						<path
-							d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"
-						/>
-					</svg>
+					<BookOpen size={14} />
 					Resources
 				</a>
 				<a href={mcpPath} class="user-menu-item" onclick={() => (userMenuOpen = false)}>
-					<svg
-						width="14"
-						height="14"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					>
-						<rect x="3" y="4" width="18" height="6" rx="2" /><rect
-							x="3"
-							y="14"
-							width="18"
-							height="6"
-							rx="2"
-						/><path d="M7 7h.01" /><path d="M7 17h.01" /><path d="M11 7h6" /><path d="M11 17h6" />
-					</svg>
+					<Server size={14} />
 					MCP
 				</a>
 				<a href={settingsPath} class="user-menu-item" onclick={() => (userMenuOpen = false)}>
-					<svg
-						width="14"
-						height="14"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					>
-						<circle cx="12" cy="12" r="3" /><path
-							d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 20a1.65 1.65 0 0 0-1-.6 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1-.33H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4 9a1.65 1.65 0 0 0 .6-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 15 4a1.65 1.65 0 0 0 1 .6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.3.3.49.67.6 1 .07.34.33.58.67.67H21a2 2 0 0 1 0 4h-.09c-.34.07-.58.33-.67.67-.11.33-.3.7-.6 1Z"
-						/>
-					</svg>
+					<Settings size={14} />
 					Settings
 				</a>
 				<a href={billingPath} class="user-menu-item" onclick={() => (userMenuOpen = false)}>
-					<svg
-						width="14"
-						height="14"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					>
-						<rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" />
-					</svg>
+					<CreditCard size={14} />
 					Billing
+				</a>
+				<a href={resolve('/app/mcp/getting-started')} class="user-menu-item" onclick={() => (userMenuOpen = false)}>
+					<LifeBuoy size={14} />
+					Getting started
 				</a>
 
 				<div class="user-menu-divider"></div>
@@ -304,36 +320,10 @@
 					}}
 				>
 					{#if theme.isDark}
-						<svg
-							width="14"
-							height="14"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						>
-							<circle cx="12" cy="12" r="5" /><path d="M12 1v2" /><path d="M12 21v2" /><path
-								d="m4.22 4.22 1.42 1.42"
-							/><path d="m18.36 18.36 1.42 1.42" /><path d="M1 12h2" /><path d="M21 12h2" /><path
-								d="m4.22 19.78 1.42-1.42"
-							/><path d="m18.36 5.64 1.42-1.42" />
-						</svg>
+						<Sun size={14} />
 						Light mode
 					{:else}
-						<svg
-							width="14"
-							height="14"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						>
-							<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-						</svg>
+						<Moon size={14} />
 						Dark mode
 					{/if}
 				</button>

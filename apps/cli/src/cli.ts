@@ -5,12 +5,47 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Cli from "effect/unstable/cli";
+import { promises as Fs } from "node:fs";
 import { createRequire } from "node:module";
+import path from "node:path";
+import * as readline from "node:readline/promises";
 import util from "node:util";
+import {
+  AUTH_FILE_PATH,
+  AUTH_FILE_VERSION,
+  getOAuthProvider,
+  isAuthProviderId,
+  type AuthProviderId,
+  type AuthState,
+  type OAuthLoginCallbacks,
+  SUPPORTED_AUTH_PROVIDERS,
+} from "@btca/server";
 import { Server } from "./server.ts";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
+
+type StoredApiKeyCredential = {
+  readonly type: "api_key";
+  readonly key: string;
+};
+
+type StoredOAuthCredential = {
+  readonly type: "oauth";
+  readonly access: string;
+  readonly refresh: string;
+  readonly expires: number;
+  readonly metadata?: Readonly<Record<string, string>>;
+};
+
+type StoredCredential = StoredApiKeyCredential | StoredOAuthCredential;
+
+type StoredAuthFile = Partial<Record<AuthProviderId, StoredCredential>>;
+
+const AUTH_LOCK_DIRECTORY_PATH = `${AUTH_FILE_PATH}.lock`;
+const LOCK_STALE_MS = 30_000;
+const LOCK_RETRY_DELAY_MS = 50;
+const LOCK_RETRY_ATTEMPTS = 200;
 
 const serverFlags = {
   debug: Cli.Flag.boolean("debug").pipe(
@@ -31,6 +66,376 @@ const serverFlags = {
     ),
   ),
 };
+
+const authFileTemplate = (): StoredAuthFile => ({});
+
+const serializeAuthFile = (value: StoredAuthFile) => `${JSON.stringify(value, null, 2)}\n`;
+
+const parseStoredCredential = (value: unknown): StoredCredential | undefined => {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  if (record.type === "api_key" && typeof record.key === "string" && record.key.trim().length > 0) {
+    return {
+      type: "api_key",
+      key: record.key.trim(),
+    };
+  }
+
+  if (
+    record.type === "oauth" &&
+    typeof record.access === "string" &&
+    typeof record.refresh === "string" &&
+    typeof record.expires === "number" &&
+    Number.isFinite(record.expires)
+  ) {
+    const metadata =
+      typeof record.metadata === "object" && record.metadata !== null
+        ? Object.fromEntries(
+            Object.entries(record.metadata).filter(
+              (entry): entry is [string, string] => typeof entry[1] === "string",
+            ),
+          )
+        : undefined;
+
+    return {
+      type: "oauth",
+      access: record.access,
+      refresh: record.refresh,
+      expires: record.expires,
+      metadata,
+    };
+  }
+
+  return undefined;
+};
+
+const parseAuthFile = (content: string): StoredAuthFile => {
+  if (content.trim().length === 0) {
+    return authFileTemplate();
+  }
+
+  const parsed = JSON.parse(content) as unknown;
+
+  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+    const flatProviders = Object.fromEntries(
+      Object.entries(parsed).flatMap(([provider, value]) => {
+        if (!isAuthProviderId(provider)) {
+          return [];
+        }
+
+        const credential = parseStoredCredential(value);
+        return credential ? ([[provider, credential]] as const) : [];
+      }),
+    ) as StoredAuthFile;
+
+    if (Object.keys(flatProviders).length > 0) {
+      return flatProviders;
+    }
+  }
+
+  if (
+    typeof parsed === "object" &&
+    parsed !== null &&
+    "version" in parsed &&
+    parsed.version === AUTH_FILE_VERSION &&
+    "providers" in parsed &&
+    typeof parsed.providers === "object" &&
+    parsed.providers !== null
+  ) {
+    return Object.fromEntries(
+      Object.entries(parsed.providers).flatMap(([provider, value]) => {
+        if (!isAuthProviderId(provider)) {
+          return [];
+        }
+
+        const credential = parseStoredCredential(value);
+        return credential ? ([[provider, credential]] as const) : [];
+      }),
+    ) as StoredAuthFile;
+  }
+
+  return authFileTemplate();
+};
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+const acquireAuthFileLock = async () => {
+  for (let attempt = 0; attempt < LOCK_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      await Fs.mkdir(AUTH_LOCK_DIRECTORY_PATH);
+      return;
+    } catch (cause) {
+      if (!(cause && typeof cause === "object" && "code" in cause && cause.code === "EEXIST")) {
+        throw cause;
+      }
+
+      try {
+        const stats = await Fs.stat(AUTH_LOCK_DIRECTORY_PATH);
+        if (Date.now() - stats.mtimeMs > LOCK_STALE_MS) {
+          await Fs.rm(AUTH_LOCK_DIRECTORY_PATH, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        // Ignore disappearing lock races and retry.
+      }
+
+      await sleep(LOCK_RETRY_DELAY_MS);
+    }
+  }
+
+  throw new Error("Timed out waiting for the BTCA auth file lock.");
+};
+
+const releaseAuthFileLock = () => Fs.rm(AUTH_LOCK_DIRECTORY_PATH, { recursive: true, force: true });
+
+const withAuthFileLock = <A>(fn: (current: StoredAuthFile) => Promise<A>) =>
+  Effect.tryPromise({
+    try: async () => {
+      await Fs.mkdir(path.dirname(AUTH_FILE_PATH), {
+        recursive: true,
+        mode: 0o700,
+      });
+
+      try {
+        await Fs.access(AUTH_FILE_PATH);
+      } catch (cause) {
+        if (!(cause && typeof cause === "object" && "code" in cause && cause.code === "ENOENT")) {
+          throw cause;
+        }
+
+        await Fs.writeFile(AUTH_FILE_PATH, serializeAuthFile(authFileTemplate()), {
+          encoding: "utf8",
+          mode: 0o600,
+        });
+      }
+
+      await acquireAuthFileLock();
+
+      try {
+        const content = await Fs.readFile(AUTH_FILE_PATH, "utf8");
+        const current = parseAuthFile(content);
+        return await fn(current);
+      } finally {
+        await releaseAuthFileLock();
+      }
+    },
+    catch: (cause) =>
+      new Error(
+        cause instanceof Error
+          ? cause.message
+          : `Failed to update credentials in ${AUTH_FILE_PATH}.`,
+      ),
+  });
+
+const persistOAuthCredential = (provider: AuthProviderId, credentials: StoredOAuthCredential) =>
+  withAuthFileLock(async (current) => {
+    const next: StoredAuthFile = {
+      ...current,
+      [provider]: credentials,
+    };
+
+    const temporaryPath = `${AUTH_FILE_PATH}.${Date.now()}.tmp`;
+    await Fs.writeFile(temporaryPath, serializeAuthFile(next), {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    await Fs.rename(temporaryPath, AUTH_FILE_PATH);
+  });
+
+const promptLine = (question: string) =>
+  Effect.tryPromise({
+    try: async () => {
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      try {
+        return (await rl.question(question)).trim();
+      } finally {
+        rl.close();
+      }
+    },
+    catch: (cause) =>
+      new Error(cause instanceof Error ? cause.message : "Failed to read input from the terminal."),
+  });
+
+const promptSelection = <A>(
+  title: string,
+  options: readonly {
+    readonly label: string;
+    readonly value: A;
+  }[],
+) =>
+  Effect.gen(function* () {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      return yield* Effect.fail(
+        new Error("The connect and disconnect commands require an interactive terminal."),
+      );
+    }
+
+    yield* Console.log(title);
+
+    for (const [index, option] of options.entries()) {
+      yield* Console.log(`  ${index + 1}. ${option.label}`);
+    }
+
+    while (true) {
+      const response = yield* promptLine("Choose a number: ");
+      const selectedIndex = Number.parseInt(response, 10);
+
+      if (
+        Number.isInteger(selectedIndex) &&
+        selectedIndex >= 1 &&
+        selectedIndex <= options.length
+      ) {
+        return options[selectedIndex - 1]!.value;
+      }
+
+      yield* Console.log(`Enter a number between 1 and ${options.length}.`);
+    }
+  });
+
+const promptApiKey = (providerLabel: string) =>
+  promptLine(`API key for ${providerLabel}: `).pipe(
+    Effect.flatMap((value) =>
+      value.length > 0
+        ? Effect.succeed(value)
+        : Effect.fail(new Error("API key must not be empty.")),
+    ),
+  );
+
+const providerStatusLabel = (auth: AuthState, provider: AuthProviderId) => {
+  const state = auth.providers[provider];
+  const status = state.configured ? `${state.source}` : "not connected";
+  return `${state.label} (${state.kind}, ${status})`;
+};
+
+const buildOAuthCallbacks = (): OAuthLoginCallbacks => ({
+  onAuth: ({ url, instructions }) =>
+    Promise.resolve().then(() => {
+      console.log("");
+      console.log(`Open this URL to continue:\n${url}`);
+      if (instructions) {
+        console.log(instructions);
+      }
+      console.log("");
+    }),
+  onPrompt: ({ message, placeholder }) =>
+    Effect.runPromise(promptLine(`${message}${placeholder ? ` (${placeholder})` : ""} `)),
+  onProgress: (message) =>
+    Promise.resolve().then(() => {
+      console.log(message);
+    }),
+});
+
+const connect = Cli.Command.make("connect", {}, () =>
+  Effect.gen(function* () {
+    const server = yield* Server;
+    const auth = yield* server.getAuthState();
+    const selectedProvider = yield* promptSelection(
+      "Choose a provider to connect:",
+      SUPPORTED_AUTH_PROVIDERS.map((provider) => ({
+        value: provider,
+        label: providerStatusLabel(auth, provider),
+      })),
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new Error(cause instanceof Error ? cause.message : "Failed to choose a provider."),
+      ),
+    );
+    const providerState = auth.providers[selectedProvider];
+
+    if (providerState.kind === "api_key") {
+      const apiKey = yield* promptApiKey(providerState.label);
+      yield* server.loginApiKey(selectedProvider, apiKey);
+      yield* Console.log(`Connected ${providerState.label}.`);
+      return;
+    }
+
+    const oauthProvider = getOAuthProvider(selectedProvider);
+
+    if (!oauthProvider) {
+      return yield* Effect.fail(new Error(`OAuth is not available for ${providerState.label}.`));
+    }
+
+    const credentials = yield* Effect.tryPromise({
+      try: async () => oauthProvider.login(buildOAuthCallbacks()),
+      catch: (cause) =>
+        new Error(
+          cause instanceof Error
+            ? cause.message
+            : `Failed to complete OAuth login for ${providerState.label}.`,
+        ),
+    });
+
+    const metadataEntries = Object.entries(credentials).filter(
+      (entry): entry is [string, string] =>
+        entry[0] !== "access" &&
+        entry[0] !== "refresh" &&
+        entry[0] !== "expires" &&
+        typeof entry[1] === "string",
+    );
+
+    yield* persistOAuthCredential(selectedProvider, {
+      type: "oauth",
+      access: credentials.access,
+      refresh: credentials.refresh,
+      expires: credentials.expires,
+      metadata: metadataEntries.length > 0 ? Object.fromEntries(metadataEntries) : undefined,
+    });
+
+    const refreshedAuth = yield* server.getAuthState();
+    const refreshedProvider = refreshedAuth.providers[selectedProvider];
+
+    if (!refreshedProvider.configured) {
+      yield* Console.log(
+        `Saved ${providerState.label} credentials to ${AUTH_FILE_PATH}, but the current server did not pick them up.`,
+      );
+      return;
+    }
+
+    yield* Console.log(`Connected ${providerState.label}.`);
+  }),
+).pipe(Cli.Command.withDescription("Connect an AI provider and store credentials in auth.json."));
+
+const disconnect = Cli.Command.make("disconnect", {}, () =>
+  Effect.gen(function* () {
+    const server = yield* Server;
+    const auth = yield* server.getAuthState();
+    const connectedProviders = SUPPORTED_AUTH_PROVIDERS.filter(
+      (provider) => auth.providers[provider].source === "auth-file",
+    );
+
+    if (connectedProviders.length === 0) {
+      yield* Console.log("No providers are currently connected through auth.json.");
+      return;
+    }
+
+    const selectedProvider = yield* promptSelection(
+      "Choose a provider to disconnect:",
+      connectedProviders.map((provider) => ({
+        value: provider,
+        label: providerStatusLabel(auth, provider),
+      })),
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new Error(cause instanceof Error ? cause.message : "Failed to choose a provider."),
+      ),
+    );
+
+    yield* server.logout(selectedProvider);
+    yield* Console.log(`Disconnected ${auth.providers[selectedProvider].label}.`);
+  }),
+).pipe(
+  Cli.Command.withDescription("Disconnect a provider by removing its stored auth.json credential."),
+);
 
 const btca = Cli.Command.make("btca").pipe(
   Cli.Command.withDescription("BTCA command line tools."),
@@ -160,6 +565,12 @@ const printAskStream = (stream: ReadableStream<Uint8Array>) =>
         if (eventName === "done") {
           ensureTrailingBreak();
           process.stdout.write("\nDone.\n");
+          return;
+        }
+
+        if (eventName === "error" && data && typeof data === "object") {
+          ensureTrailingBreak();
+          process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
           return;
         }
 
@@ -299,7 +710,7 @@ const ask = Cli.Command.make(
 );
 
 const app = btca.pipe(
-  Cli.Command.withSubcommands([hello, serve, ask]),
+  Cli.Command.withSubcommands([hello, serve, ask, connect, disconnect]),
   Cli.Command.provideEffect(Server, ({ port, url, debug }) => Server.make({ port, url, debug })),
 );
 

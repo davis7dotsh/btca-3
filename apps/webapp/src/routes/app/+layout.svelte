@@ -1,12 +1,36 @@
 <script lang="ts">
+	import { Menu } from '@lucide/svelte';
 	import ConvexWrapper from '$lib/wrappers/ConvexWrapper.svelte';
 	import AppSidebar from '$lib/components/AppSidebar.svelte';
+	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import { resolve } from '$app/paths';
 	import { setAuthContext } from '$lib/stores/auth.svelte';
+	import { page } from '$app/state';
 
 	const { children } = $props();
 	const authContext = setAuthContext();
+
+	let sidebarOpen = $state(false);
+	let commandPaletteOpen = $state(false);
+
+	function handleGlobalKeydown(event: KeyboardEvent) {
+		if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+			event.preventDefault();
+			commandPaletteOpen = !commandPaletteOpen;
+		}
+	}
+
+	$effect(() => {
+		if (!page.url.pathname) {
+			return;
+		}
+
+		sidebarOpen = false;
+		commandPaletteOpen = false;
+	});
 </script>
+
+<svelte:window onkeydown={handleGlobalKeydown} />
 
 <svelte:head>
 	<title>pi land | App</title>
@@ -45,12 +69,48 @@
 				</div>
 			</div>
 		{:else}
-			<div class="flex h-screen bg-[hsl(var(--bc-bg))] text-[hsl(var(--bc-fg))]">
-				<AppSidebar />
-				<main class="bc-page-enter flex min-h-0 flex-1 flex-col">
+			<div class="relative flex h-dvh overflow-hidden bg-[hsl(var(--bc-bg))] text-[hsl(var(--bc-fg))]">
+				<div aria-hidden="true" class="bc-appBg pointer-events-none absolute inset-0 -z-10"></div>
+
+				<button
+					type="button"
+					class="bc-iconBtn fixed left-4 top-4 z-50 lg:hidden"
+					onclick={() => (sidebarOpen = true)}
+					aria-label="Open sidebar"
+				>
+					<Menu size={18} />
+				</button>
+
+				<aside
+					class={`fixed inset-y-0 left-0 z-40 w-[18.5rem] shrink-0 transform border-r border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] transition-transform duration-200 ease-out lg:relative lg:translate-x-0 ${
+						sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+					}`}
+				>
+					<AppSidebar
+						isOpen={sidebarOpen}
+						onOpenCommandPalette={() => (commandPaletteOpen = true)}
+						onClose={() => (sidebarOpen = false)}
+					/>
+				</aside>
+
+				{#if sidebarOpen}
+					<button
+						type="button"
+						class="fixed inset-0 z-30 bg-black/55 lg:hidden"
+						onclick={() => (sidebarOpen = false)}
+						aria-label="Close sidebar"
+					></button>
+				{/if}
+
+				<main class="bc-page-enter relative flex min-h-0 flex-1 flex-col">
 					{@render children()}
 				</main>
 			</div>
+
+			<CommandPalette
+				isOpen={commandPaletteOpen}
+				onClose={() => (commandPaletteOpen = false)}
+			/>
 		{/if}
 	</ConvexWrapper>
 {:else}

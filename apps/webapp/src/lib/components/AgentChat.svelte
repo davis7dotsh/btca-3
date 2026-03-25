@@ -206,6 +206,19 @@
 		}
 	};
 
+	const formatThreadMessageForCopy = (message: ChatMessage) => {
+		switch (message.role) {
+			case 'user':
+				return `User:\n${message.content.trim()}`;
+			case 'assistant': {
+				const content = getAssistantText(message).trim();
+				return content ? `Assistant:\n${content}` : '';
+			}
+			case 'system':
+				return '';
+		}
+	};
+
 	const prettyJson = (value: unknown) => JSON.stringify(value, null, 2);
 	const isRecord = (value: unknown): value is Record<string, unknown> =>
 		typeof value === 'object' && value !== null;
@@ -861,7 +874,7 @@
 	});
 	const fullThreadCopyText = $derived(
 		messages
-			.map((message) => formatChatMessageForCopy(message))
+			.map((message) => formatThreadMessageForCopy(message))
 			.filter((message) => message.trim().length > 0)
 			.join('\n\n---\n\n')
 	);

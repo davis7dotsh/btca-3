@@ -1,4 +1,10 @@
-import { startServerWithLogging, type HealthResponse, type HelloResponse } from "@btca/server";
+import {
+  startServerWithLogging,
+  type AuthState,
+  type AuthProviderId,
+  type HealthResponse,
+  type HelloResponse,
+} from "@btca/server";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -20,6 +26,12 @@ export interface ServerDef {
   readonly baseUrl: string;
   readonly health: () => Effect.Effect<HealthResponse, ServerServiceError>;
   readonly hello: (name: string) => Effect.Effect<HelloResponse, ServerServiceError>;
+  readonly getAuthState: () => Effect.Effect<AuthState, ServerServiceError>;
+  readonly loginApiKey: (
+    provider: AuthProviderId,
+    apiKey: string,
+  ) => Effect.Effect<AuthState, ServerServiceError>;
+  readonly logout: (provider: AuthProviderId) => Effect.Effect<AuthState, ServerServiceError>;
   readonly askStream: (args: {
     readonly question: string;
     readonly resourceNames: readonly string[];
@@ -38,10 +50,10 @@ const normalizeBaseUrl = (url: string) => {
 };
 
 const makeServerService = ({ baseUrl, quiet }: { baseUrl: string; quiet: boolean }): ServerDef => {
-  const rpc = <A>(path: `/${string}`) =>
+  const rpc = <A>(path: `/${string}`, init?: RequestInit) =>
     Effect.tryPromise({
       try: async () => {
-        const response = await fetch(`${baseUrl}${path}`);
+        const response = await fetch(`${baseUrl}${path}`, init);
         const body = await response.json();
 
         if (!response.ok) {
@@ -61,6 +73,28 @@ const makeServerService = ({ baseUrl, quiet }: { baseUrl: string; quiet: boolean
     baseUrl,
     health: () => rpc<HealthResponse>("/health"),
     hello: (name) => rpc<HelloResponse>(`/hello/${encodeURIComponent(name)}`),
+    getAuthState: () =>
+      rpc<{
+        auth: AuthState;
+      }>("/auth").pipe(Effect.map((response) => response.auth)),
+    loginApiKey: (provider, apiKey) =>
+      rpc<{
+        auth: AuthState;
+      }>(`/auth/${encodeURIComponent(provider)}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          apiKey,
+        }),
+      }).pipe(Effect.map((response) => response.auth)),
+    logout: (provider) =>
+      rpc<{
+        auth: AuthState;
+      }>(`/auth/${encodeURIComponent(provider)}`, {
+        method: "DELETE",
+      }).pipe(Effect.map((response) => response.auth)),
     askStream: ({ question, resourceNames, quiet: requestQuiet }) =>
       Effect.tryPromise({
         try: async () => {
