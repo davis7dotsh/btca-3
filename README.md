@@ -1,6 +1,12 @@
-# Vite+ Monorepo Starter
+# btca 3
 
-A starter for creating a Vite+ monorepo.
+WARNING: this is a temp dev repo that will eventually replace what's currently in: https://github.com/davis7dotsh/better-context
+
+This is a full rebuild (backwards compat) around:
+
+- pi agent sdk
+- vp & node instead of bun to help with windows compat
+- ground up redo of the webapp
 
 ## Development
 

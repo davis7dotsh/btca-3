@@ -1,3 +1,3 @@
-export function fn() {
-  return "Hello, tsdown!";
+export function demoFunc() {
+  return "wow this ran somewhere else";
 }
