@@ -7,17 +7,13 @@
   },
   "type": "module",
   "scripts": {
+    "dev": "node src/cli.ts",
     "build": "vp pack",
     "check": "vp check"
   },
   "dependencies": {
-    "@effect/cli": "0.0.0-snapshot-6ebc752baf28354006ca2a0ae783a5bccf5de9ad",
-    "@effect/platform": "0.0.0-snapshot-6ebc752baf28354006ca2a0ae783a5bccf5de9ad",
-    "@effect/platform-node": "0.0.0-snapshot-6ebc752baf28354006ca2a0ae783a5bccf5de9ad",
-    "@effect/printer": "0.0.0-snapshot-6ebc752baf28354006ca2a0ae783a5bccf5de9ad",
-    "@effect/printer-ansi": "0.0.0-snapshot-6ebc752baf28354006ca2a0ae783a5bccf5de9ad",
-    "@effect/schema": "0.0.0-snapshot-6ebc752baf28354006ca2a0ae783a5bccf5de9ad",
-    "effect": "0.0.0-snapshot-6ebc752baf28354006ca2a0ae783a5bccf5de9ad"
+    "@effect/platform-node": "4.0.0-beta.40",
+    "effect": "4.0.0-beta.40"
   },
   "devDependencies": {
     "@types/node": "catalog:",

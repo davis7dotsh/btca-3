@@ -1,22 +1,22 @@
 #!/usr/bin/env node
 
-import { Command } from "@effect/cli";
-import * as NodeContext from "@effect/platform-node/NodeContext";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-import { Console, Effect } from "effect";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Console from "effect/Console";
+import * as Effect from "effect/Effect";
+import * as Cli from "effect/unstable/cli";
 
-const hello = Command.make("hello", {}, () => Console.log("hello world")).pipe(
-  Command.withDescription("Print a friendly hello world."),
+const hello = Cli.Command.make("hello", {}, () => Console.log("hello world")).pipe(
+  Cli.Command.withDescription("Print a friendly hello world."),
 );
 
-const btca = Command.make("btca").pipe(
-  Command.withDescription("BTCA command line tools."),
-  Command.withSubcommands([hello]),
+const btca = Cli.Command.make("btca").pipe(
+  Cli.Command.withDescription("BTCA command line tools."),
+  Cli.Command.withSubcommands([hello]),
 );
 
-const cli = Command.run(btca, {
-  name: "BTCA CLI",
+const cli = Cli.Command.run(btca, {
   version: "0.0.0",
 });
 
-cli(process.argv).pipe(Effect.provide(NodeContext.layer), NodeRuntime.runMain);
+cli.pipe(Effect.provide(NodeServices.layer), NodeRuntime.runMain);

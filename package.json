@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "ready": "vp fmt && vp lint && vp run test -r && vp run build -r",
-    "dev": "vp run @btca/webapp#dev"
+    "check": "vp fmt && vp lint && vp run check -r",
+    "dev:web": "vp run @btca/webapp#dev",
+    "dev:cli": "vp run @btca/cli#dev",
+    "dev:server": "vp run @btca/server#dev"
   },
   "devDependencies": {
     "@sveltejs/kit": "catalog:",
