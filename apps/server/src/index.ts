@@ -4,7 +4,7 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-import { startServer } from "./server.ts";
+import { startServerWithLogging } from "./server.ts";
 
 const host = process.env.HOST ?? "127.0.0.1";
 const STARTUP_ATTEMPTS = 3;
@@ -35,7 +35,7 @@ const startServerWithRetries = Effect.gen(function* () {
   let lastError: unknown = null;
 
   for (const port of attemptedPorts) {
-    const attempt = yield* Effect.exit(startServer({ host, port }));
+    const attempt = yield* Effect.exit(startServerWithLogging({ host, port }));
 
     if (Exit.isSuccess(attempt)) {
       return attempt.value;
@@ -62,4 +62,4 @@ const program = Effect.scoped(
   }),
 );
 
-NodeRuntime.runMain(Effect.orDie(Effect.provide(program, NodeServices.layer)));
+NodeRuntime.runMain(program.pipe(Effect.provide(NodeServices.layer), Effect.orDie));

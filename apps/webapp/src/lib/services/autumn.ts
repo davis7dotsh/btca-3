@@ -127,7 +127,6 @@ export class AutumnService extends ServiceMap.Service<AutumnService, AutumnDef>(
       secretKey && secretKey.length > 0
         ? new Autumn({
             secretKey,
-            ...(env.AUTUMN_URL ? { url: env.AUTUMN_URL } : {}),
           })
         : null;
 

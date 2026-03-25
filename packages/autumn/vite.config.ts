@@ -2,7 +2,7 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   pack: {
-    entry: ["src/index.ts", "src/products.ts", "convex/convex.config.ts"],
+    entry: ["src/index.ts", "src/config.ts", "src/products.ts", "convex/convex.config.ts"],
     dts: {
       tsgo: true,
     },

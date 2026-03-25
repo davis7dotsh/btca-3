@@ -1,6 +1,7 @@
-import { startServer, type HealthResponse, type HelloResponse } from "@btca/server";
+import { startServerWithLogging, type HealthResponse, type HelloResponse } from "@btca/server";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as ServiceMap from "effect/ServiceMap";
 
@@ -12,12 +13,18 @@ export class ServerServiceError extends Data.TaggedError("ServerServiceError")<{
 export interface ServerFlags {
   readonly port: Option.Option<number>;
   readonly url: Option.Option<string>;
+  readonly debug: boolean;
 }
 
 export interface ServerDef {
   readonly baseUrl: string;
   readonly health: () => Effect.Effect<HealthResponse, ServerServiceError>;
   readonly hello: (name: string) => Effect.Effect<HelloResponse, ServerServiceError>;
+  readonly askStream: (args: {
+    readonly question: string;
+    readonly resourceNames: readonly string[];
+    readonly quiet?: boolean;
+  }) => Effect.Effect<ReadableStream<Uint8Array>, ServerServiceError>;
 }
 
 const normalizeBaseUrl = (url: string) => {
@@ -30,7 +37,7 @@ const normalizeBaseUrl = (url: string) => {
   return parsedUrl.toString().replace(/\/$/, "");
 };
 
-const makeServerService = (baseUrl: string): ServerDef => {
+const makeServerService = ({ baseUrl, quiet }: { baseUrl: string; quiet: boolean }): ServerDef => {
   const rpc = <A>(path: `/${string}`) =>
     Effect.tryPromise({
       try: async () => {
@@ -54,11 +61,48 @@ const makeServerService = (baseUrl: string): ServerDef => {
     baseUrl,
     health: () => rpc<HealthResponse>("/health"),
     hello: (name) => rpc<HelloResponse>(`/hello/${encodeURIComponent(name)}`),
+    askStream: ({ question, resourceNames, quiet: requestQuiet }) =>
+      Effect.tryPromise({
+        try: async () => {
+          const response = await fetch(`${baseUrl}/ask`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              question,
+              resourceNames,
+              quiet: requestQuiet ?? quiet,
+            }),
+          });
+
+          if (!response.ok) {
+            const body = await response.text();
+            throw new Error(
+              `Server returned ${response.status} for /ask${body.length > 0 ? `: ${body}` : ""}`,
+            );
+          }
+
+          if (response.body === null) {
+            throw new Error("Server returned an empty response body for /ask");
+          }
+
+          return response.body;
+        },
+        catch: (cause) =>
+          new ServerServiceError({
+            message: `Failed to call /ask on ${baseUrl}`,
+            cause,
+          }),
+      }),
   };
 };
 
 const verifyServer = (baseUrl: string) =>
-  makeServerService(baseUrl)
+  makeServerService({
+    baseUrl,
+    quiet: false,
+  })
     .health()
     .pipe(
       Effect.map(() => undefined),
@@ -72,7 +116,7 @@ const verifyServer = (baseUrl: string) =>
     );
 
 export class Server extends ServiceMap.Service<Server, ServerDef>()("Server") {
-  static readonly make = ({ port, url }: ServerFlags) =>
+  static readonly make = ({ port, url, debug }: ServerFlags) =>
     Effect.gen(function* () {
       if (Option.isSome(port) && Option.isSome(url)) {
         return yield* Effect.fail(
@@ -93,16 +137,20 @@ export class Server extends ServiceMap.Service<Server, ServerDef>()("Server") {
         });
 
         yield* verifyServer(baseUrl);
-        return makeServerService(baseUrl);
+        return makeServerService({
+          baseUrl,
+          quiet: !debug,
+        });
       }
 
       const startedServerExit = yield* Effect.exit(
-        startServer({
+        startServerWithLogging({
           port: Option.getOrUndefined(port) ?? 0,
+          quiet: !debug,
         }),
       );
 
-      if (startedServerExit._tag === "Failure") {
+      if (Exit.isFailure(startedServerExit)) {
         return yield* Effect.fail(
           new ServerServiceError({
             message:
@@ -114,6 +162,9 @@ export class Server extends ServiceMap.Service<Server, ServerDef>()("Server") {
         );
       }
 
-      return makeServerService(startedServerExit.value.localUrl);
+      return makeServerService({
+        baseUrl: startedServerExit.value.localUrl,
+        quiet: !debug,
+      });
     });
 }

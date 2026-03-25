@@ -7,6 +7,11 @@
 	import { tick } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { api } from '@btca/convex/api';
+	import {
+		addUsd,
+		calculateExaContentCostUsd,
+		calculateExaSearchCostUsd
+	} from '$lib/billing/usage';
 	import { getHumanErrorMessage } from '$lib/errors';
 	import MarkdownMessage from '$lib/components/MarkdownMessage.svelte';
 	import {
@@ -20,6 +25,7 @@
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 	import type {
 		AgentPromptStreamEvent,
+		AgentToolCallEndEvent,
 		ExecCommandToolArgs,
 		ReadFileToolArgs,
 		SandboxExecuteCommandResult,
@@ -33,6 +39,7 @@
 		isToolResultMessage,
 		isUserMessage as isPersistedUserMessage
 	} from '$lib/types/agent';
+	import type { ExaGetWebContentInput, ExaSearchWebInput } from '$lib/services/exa';
 
 	const { routeBase = '/app/chat', agentApiPath = '/api/agent' } = $props<{
 		routeBase?: string;
@@ -130,6 +137,7 @@
 		provider: string | null;
 		completedUsage: Usage | null;
 		liveUsage: Usage | null;
+		billedCostUsd: number;
 		completedAt: number | null;
 		toolCallDurationMs: number;
 		activeToolCallCount: number;
@@ -255,6 +263,7 @@
 		provider: model?.provider ?? null,
 		completedUsage: null,
 		liveUsage: null,
+		billedCostUsd: 0,
 		completedAt: null,
 		toolCallDurationMs: 0,
 		activeToolCallCount: 0,
@@ -268,6 +277,7 @@
 	});
 	const getAssistantUsage = (message: AssistantMessage) =>
 		addUsage(message.stats.completedUsage, message.stats.liveUsage);
+	const getAssistantBilledCostUsd = (message: AssistantMessage) => message.stats.billedCostUsd;
 	const numberFormatter = new Intl.NumberFormat();
 	const tokenRateFormatter = new Intl.NumberFormat(undefined, {
 		maximumFractionDigits: 1,
@@ -323,11 +333,109 @@
 	const isPricingVisible = (message: AssistantMessage) => {
 		const usage = getAssistantUsage(message);
 
+		if (message.stats.billedCostUsd > 0) {
+			return true;
+		}
+
 		if (!usage) {
 			return false;
 		}
 
 		return message.stats.model?.pricingConfigured ?? usage.cost.total > 0;
+	};
+
+	const parseExaSearchArgs = (value: unknown): ExaSearchWebInput | null => {
+		if (!isRecord(value) || typeof value.query !== 'string' || value.query.length === 0) {
+			return null;
+		}
+
+		return {
+			query: value.query,
+			...(typeof value.numResults === 'number' ? { numResults: value.numResults } : {}),
+			...(Array.isArray(value.includeDomains)
+				? {
+						includeDomains: value.includeDomains.filter(
+							(domain): domain is string => typeof domain === 'string'
+						)
+					}
+				: {}),
+			...(Array.isArray(value.excludeDomains)
+				? {
+						excludeDomains: value.excludeDomains.filter(
+							(domain): domain is string => typeof domain === 'string'
+						)
+					}
+				: {}),
+			...(typeof value.startPublishedDate === 'string'
+				? { startPublishedDate: value.startPublishedDate }
+				: {}),
+			...(typeof value.endPublishedDate === 'string'
+				? { endPublishedDate: value.endPublishedDate }
+				: {})
+		};
+	};
+
+	const parseExaGetWebContentArgs = (value: unknown): ExaGetWebContentInput | null => {
+		if (!isRecord(value) || !Array.isArray(value.urls)) {
+			return null;
+		}
+
+		const urls = value.urls.filter((url): url is string => typeof url === 'string' && url.length > 0);
+
+		if (urls.length === 0) {
+			return null;
+		}
+
+		return {
+			urls,
+			...(typeof value.maxCharacters === 'number' ? { maxCharacters: value.maxCharacters } : {}),
+			...(typeof value.summary === 'boolean' ? { summary: value.summary } : {}),
+			...(typeof value.highlightsQuery === 'string'
+				? { highlightsQuery: value.highlightsQuery }
+				: {}),
+			...(typeof value.maxAgeHours === 'number' ? { maxAgeHours: value.maxAgeHours } : {})
+		};
+	};
+
+	const getToolBilledCostUsd = ({
+		streamEvent,
+		tool
+	}: {
+		streamEvent: AgentToolCallEndEvent;
+		tool: ToolCallState | null;
+	}) => {
+		if (streamEvent.isError) {
+			return 0;
+		}
+
+		if (streamEvent.toolType === 'exec_command') {
+			return streamEvent.details?.costUsd ?? 0;
+		}
+
+		if (streamEvent.toolType !== 'unknown') {
+			return 0;
+		}
+
+		if (streamEvent.toolName === 'searchWeb') {
+			return calculateExaSearchCostUsd(
+				parseExaSearchArgs(tool?.toolType === 'unknown' ? tool.args : null)
+			);
+		}
+
+		if (streamEvent.toolName === 'getWebContent') {
+			const input = parseExaGetWebContentArgs(tool?.toolType === 'unknown' ? tool.args : null);
+			const pageCount =
+				isRecord(streamEvent.details) && typeof streamEvent.details.count === 'number'
+					? streamEvent.details.count
+					: 0;
+
+			return calculateExaContentCostUsd({
+				input,
+				pageCount
+			});
+		}
+
+		return 0;
 	};
 
 	const getToolTypeClass = (tool: ToolCallState) => {
@@ -628,6 +736,7 @@
 					provider: parsedMessage.provider,
 					completedUsage: addUsage(assistantMessage.stats.completedUsage, parsedMessage.usage),
 					liveUsage: null,
+					billedCostUsd: addUsd(assistantMessage.stats.billedCostUsd, parsedMessage.usage.cost.total),
 					completedAt: parsedMessage.timestamp,
 					toolCallDurationMs: assistantMessage.stats.toolCallDurationMs,
 					activeToolCallCount: 0,
@@ -1060,6 +1169,22 @@
 		});
 	}
 
+	function getAssistantTool(messageId: string, toolId: string) {
+		const assistantMessage = messages.find(
+			(message): message is AssistantMessage => message.id === messageId && message.role === 'assistant'
+		);
+
+		if (!assistantMessage) {
+			return null;
+		}
+
+		const toolPart = assistantMessage.parts.find(
+			(part) => part.type === 'tool' && part.tool.id === toolId
+		);
+
+		return toolPart?.type === 'tool' ? toolPart.tool : null;
+	}
+
 	function toggleTool(toolId: string) {
 		toolExpanded = {
 			...toolExpanded,
@@ -1199,6 +1324,7 @@
 							modelId: streamEvent.model
 						}) ?? stats.model,
 					completedUsage: addUsage(stats.completedUsage, streamEvent.usage),
+					billedCostUsd: addUsd(stats.billedCostUsd, streamEvent.usage.cost.total),
 					liveUsage: null,
 					completedAt: streamEvent.timestamp
 				}));
@@ -1268,10 +1394,17 @@
 				return;
 			}
 			case 'tool_call_end': {
+				const completedTool = getAssistantTool(assistantId, streamEvent.toolCallId);
+				const toolBilledCostUsd = getToolBilledCostUsd({
+					streamEvent,
+					tool: completedTool
+				});
+
 				updateAssistantStats(assistantId, (stats) => {
 					if (stats.activeToolCallCount <= 0 || stats.activeToolCallStartedAt === null) {
 						return {
 							...stats,
+							billedCostUsd: addUsd(stats.billedCostUsd, toolBilledCostUsd),
 							activeToolCallCount: 0,
 							activeToolCallStartedAt: null
 						};
@@ -1285,6 +1418,7 @@
 
 					return {
 						...stats,
+						billedCostUsd: addUsd(stats.billedCostUsd, toolBilledCostUsd),
 						toolCallDurationMs: stats.toolCallDurationMs + completedToolWindowDurationMs,
 						activeToolCallCount: nextActiveToolCallCount,
 						activeToolCallStartedAt:
@@ -1946,6 +2080,7 @@
 
 							{#if getAssistantUsage(message)}
 								{@const usage = getAssistantUsage(message)}
+								{@const billedCostUsd = getAssistantBilledCostUsd(message)}
 								{@const outputTokensPerSecond = getAssistantOutputTokensPerSecond(message)}
 								{#if usage}
 									<div class="assistant-stats">
@@ -1963,7 +2098,7 @@
 											</div>
 										{/if}
 										<div class="assistant-stat">
-											{isPricingVisible(message) ? formatCost(usage.cost.total) : 'Cost n/a'}
+											{isPricingVisible(message) ? formatCost(billedCostUsd || usage.cost.total) : 'Cost n/a'}
 										</div>
 									</div>
 								{/if}

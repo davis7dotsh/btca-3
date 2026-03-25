@@ -3,6 +3,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as ServiceMap from "effect/ServiceMap";
@@ -40,6 +41,7 @@ const AgentRunInput = Schema.Struct({
   prompt: Schema.NonEmptyString,
   modelId: Schema.optional(Schema.NonEmptyString),
   resourceNames: Schema.optional(Schema.Array(Schema.NonEmptyString)),
+  quiet: Schema.optional(Schema.Boolean),
 });
 
 const AskInput = Schema.Struct({
@@ -47,6 +49,7 @@ const AskInput = Schema.Struct({
   question: Schema.NonEmptyString,
   modelId: Schema.optional(Schema.NonEmptyString),
   resourceNames: Schema.Array(Schema.NonEmptyString),
+  quiet: Schema.optional(Schema.Boolean),
 });
 
 const ThreadPathParams = Schema.Struct({
@@ -237,7 +240,13 @@ export const RoutesLive = Layer.mergeAll(
         const threads = yield* AgentThreadStore;
         const workspace = yield* WorkspaceService;
 
-        const result = yield* agent.run(body);
+        const result = yield* agent.run({
+          threadId: body.threadId,
+          prompt: body.prompt,
+          modelId: body.modelId,
+          resourceNames: body.resourceNames,
+          quiet: body.quiet,
+        });
         const thread = yield* threads.loadThread(result.threadId);
         const workspaceState = yield* workspace
           .getThreadWorkspace(result.threadId)
@@ -271,6 +280,7 @@ export const RoutesLive = Layer.mergeAll(
         question: body.question,
         modelId: body.modelId,
         resourceNames: body.resourceNames,
+        quiet: body.quiet,
       });
 
       const stream = Stream.fromAsyncIterable(
@@ -349,7 +359,7 @@ const makeServerLayer = ({
   );
 };
 
-export const startServer = ({
+const startServerBase = ({
   host = "127.0.0.1",
   port = 0,
 }: {
@@ -375,3 +385,21 @@ export const startServer = ({
     }),
     ({ scope }) => Effect.orDie(Scope.close(scope, Exit.void)),
   ).pipe(Effect.map(({ scope: _scope, ...server }) => server));
+
+const quietLoggerLayer = Logger.layer([]);
+
+export const startServer = ({
+  host = "127.0.0.1",
+  port = 0,
+  quiet = false,
+}: {
+  host?: string;
+  port?: number;
+  quiet?: boolean;
+} = {}) => {
+  const program = startServerBase({ host, port });
+
+  return quiet ? program.pipe(Effect.provide(quietLoggerLayer)) : program;
+};
+
+export const startServerWithLogging = startServer;

@@ -165,12 +165,14 @@ type AgentServiceShape = {
     prompt: string;
     modelId?: string;
     resourceNames?: readonly string[];
+    quiet?: boolean;
   }) => Effect.Effect<RunAgentResult, AgentError>;
   readonly askStream: (args: {
     threadId?: string;
     question: string;
     modelId?: string;
     resourceNames: readonly string[];
+    quiet?: boolean;
   }) => Effect.Effect<StreamAgentResult, AgentError>;
 };
 
@@ -508,7 +510,7 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
         })();
 
       return {
-        run: ({ threadId, prompt, modelId, resourceNames }) =>
+        run: ({ threadId, prompt, modelId, resourceNames, quiet: _quiet }) =>
           Effect.gen(function* () {
             const prepared = yield* prepareAgentRun({
               threadId,
@@ -567,7 +569,7 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
               messages: finalMessages,
             } satisfies RunAgentResult;
           }),
-        askStream: ({ threadId, question, modelId, resourceNames }) =>
+        askStream: ({ threadId, question, modelId, resourceNames, quiet: _quiet }) =>
           Effect.gen(function* () {
             if (resourceNames.length === 0) {
               return yield* Effect.fail(

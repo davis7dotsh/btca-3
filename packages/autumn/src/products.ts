@@ -1,4 +1,5 @@
 import { AppEnv, type Product } from "autumn-js";
+import { AUTUMN_FREE_PLAN, AUTUMN_PRO_PLAN, AUTUMN_USAGE_FEATURE } from "./config.ts";
 
 const baseProduct = {
   created_at: 0,
@@ -13,14 +14,14 @@ const baseProduct = {
 export const autumnProducts = [
   {
     ...baseProduct,
-    id: "free_plan",
+    id: AUTUMN_FREE_PLAN.id,
     name: "Free Plan",
     is_default: true,
     items: [
       {
         type: "feature",
-        feature_id: "usage_usd",
-        included_usage: 1,
+        feature_id: AUTUMN_USAGE_FEATURE.id,
+        included_usage: AUTUMN_FREE_PLAN.includedUsageUsd,
       },
     ],
     properties: {
@@ -31,27 +32,27 @@ export const autumnProducts = [
       updateable: true,
     },
     display: {
-      name: "Free",
-      description: "Try btca on a real codebase",
-      button_text: "Start with Free",
+      name: AUTUMN_FREE_PLAN.name,
+      description: AUTUMN_FREE_PLAN.description,
+      button_text: AUTUMN_FREE_PLAN.buttonText,
     },
   },
   {
     ...baseProduct,
-    id: "btca_pro",
+    id: AUTUMN_PRO_PLAN.id,
     name: "Pro Plan",
     is_default: false,
     items: [
       {
         type: "price",
-        price: 8,
-        interval: "month",
+        price: AUTUMN_PRO_PLAN.priceUsd,
+        interval: AUTUMN_PRO_PLAN.interval,
       },
       {
         type: "feature",
-        feature_id: "usage_usd",
-        included_usage: 6,
-        interval: "month",
+        feature_id: AUTUMN_USAGE_FEATURE.id,
+        included_usage: AUTUMN_PRO_PLAN.includedUsageUsd,
+        interval: AUTUMN_PRO_PLAN.interval,
       },
     ],
     properties: {
@@ -62,9 +63,9 @@ export const autumnProducts = [
       updateable: true,
     },
     display: {
-      name: "Pro",
-      description: "For solo developers doing ongoing codebase research",
-      button_text: "Upgrade to Pro",
+      name: AUTUMN_PRO_PLAN.name,
+      description: AUTUMN_PRO_PLAN.description,
+      button_text: AUTUMN_PRO_PLAN.buttonText,
     },
   },
 ] as const satisfies readonly Product[];

@@ -48,14 +48,6 @@
   const isFreePlan = $derived(currentPlanId === FREE_BILLING_PLAN.id);
   const usageBarWidth = $derived(`width: ${usage.remainingPercentage}%`);
 
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: value < 10 ? 2 : 0,
-      maximumFractionDigits: 2,
-    }).format(value);
-
   const formatResetLabel = (nextResetAt: number | null, isLifetime: boolean) => {
     if (isLifetime || nextResetAt === null) {
       return "Lifetime allowance";
@@ -177,8 +169,7 @@
       </p>
       <h1 class="bc-title text-2xl">Usage and billing</h1>
       <p class="bc-muted max-w-2xl text-sm">
-        Free users get {formatCurrency(FREE_BILLING_PLAN.limits.usageUsd)} lifetime. Pro includes
-        {formatCurrency(BILLING_PLAN.limits.usageUsd)} every month.
+        Free users get a lifetime usage allowance. Pro includes a monthly usage allowance.
       </p>
     </header>
 
@@ -208,7 +199,7 @@
             ></div>
           </div>
           <div class="flex flex-wrap items-center justify-between gap-3 text-sm text-[hsl(var(--bc-fg-muted))]">
-            <p>{formatCurrency(usage.remaining)} remaining of {formatCurrency(usage.granted)}</p>
+            <p>{usage.remainingPercentage}% of your allowance remaining</p>
             <p>{formatResetLabel(usage.nextResetAt, usage.isLifetime)}</p>
           </div>
         </div>
@@ -272,7 +263,7 @@
             <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[hsl(var(--bc-fg-muted))]">
               Free
             </p>
-            <h2 class="mt-2 text-2xl font-semibold">{formatCurrency(0)}</h2>
+            <h2 class="mt-2 text-2xl font-semibold">Included</h2>
           </div>
           {#if currentPlanId === FREE_BILLING_PLAN.id}
             <span
@@ -284,8 +275,7 @@
         </div>
 
         <p class="bc-muted mt-4 text-sm">
-          {formatCurrency(FREE_BILLING_PLAN.limits.usageUsd)} lifetime usage before upgrade is
-          required.
+          Lifetime usage included before an upgrade is required.
         </p>
       </article>
 
@@ -296,8 +286,7 @@
               Pro
             </p>
             <h2 class="mt-2 text-2xl font-semibold">
-              {formatCurrency(BILLING_PLAN.priceUsd)}
-              <span class="ml-1 text-base font-normal text-[hsl(var(--bc-fg-muted))]">/ month</span>
+              Monthly plan
             </h2>
           </div>
           {#if currentPlanId === BILLING_PLAN.id}
@@ -310,7 +299,7 @@
         </div>
 
         <div class="mt-4 space-y-3 text-sm">
-          <p>{formatCurrency(BILLING_PLAN.limits.usageUsd)} included every month</p>
+          <p>Fresh usage allowance included every month</p>
           <p class="bc-muted">Usage is metered from model tokens, Exa requests, and Box compute.</p>
           <p class="bc-muted">Hosted checkout and self-serve management portal are included.</p>
         </div>
