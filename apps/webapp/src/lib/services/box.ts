@@ -324,6 +324,8 @@ export class BoxService extends ServiceMap.Service<BoxService, BoxDef>()("BoxSer
             stdout: output,
             stderr: "",
             output,
+            computeMs: run.cost?.computeMs,
+            costUsd: run.cost?.totalUsd,
           } satisfies SandboxExecuteCommandResult;
         },
         catch: (cause) =>

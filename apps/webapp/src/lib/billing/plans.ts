@@ -1,3 +1,13 @@
+export const FREE_BILLING_PLAN = {
+  id: "free_plan",
+  name: "Free",
+  priceUsd: 0,
+  interval: "lifetime",
+  limits: {
+    usageUsd: 1,
+  },
+} as const;
+
 export const BILLING_PLAN = {
   id: "btca_pro",
   name: "Pro",
@@ -5,16 +15,12 @@ export const BILLING_PLAN = {
   interval: "month",
   model: "claude-haiku-4-5",
   limits: {
-    tokensIn: 1_500_000,
-    tokensOut: 300_000,
-    sandboxHours: 6,
+    usageUsd: 6,
   },
 } as const;
 
 export const FEATURE_IDS = {
-  tokensIn: "tokens_in",
-  tokensOut: "tokens_out",
-  sandboxHours: "sandbox_hours",
+  usageUsd: "usage_usd",
 } as const;
 
 export const SUPPORT_URL = "https://x.com/davis7";

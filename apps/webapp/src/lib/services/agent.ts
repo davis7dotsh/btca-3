@@ -10,6 +10,12 @@ import type { Message, Model } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import { Cause, Data, Effect, Layer, ServiceMap } from "effect";
 import { api } from "@btca/convex/api";
+import {
+  addUsd,
+  calculateExaContentCostUsd,
+  calculateExaSearchCostUsd,
+  createEmptyTurnCostBreakdown,
+} from "$lib/billing/usage";
 import { defaultAgentModelId, getAgentModel } from "$lib/models";
 import { buildTaggedResourcesXml, extractTaggedResourceSlugs } from "$lib/resources";
 import type {
@@ -24,12 +30,15 @@ import type {
 } from "$lib/types/agent";
 import { isPersistableAgentMessage } from "$lib/types/agent";
 import type { TaggedResourcePromptResource } from "$lib/types/resources";
+import { AutumnService } from "./autumn";
 import { BoxService, BoxServiceError } from "./box";
 import { ConvexError, ConvexPrivateService } from "./convex";
 import {
   EXA_DATE_PATTERN,
   type ExaDef,
+  type ExaGetWebContentInput,
   type ExaGetWebContentResult,
+  type ExaSearchWebInput,
   type ExaSearchWebResult,
   ExaService,
   ExaServiceError,
@@ -230,6 +239,7 @@ const buildBasePrompt = (workspaceDir: string) =>
   BASE_PROMPT.replaceAll("__WORKSPACE_DIR__", workspaceDir);
 
 type SandboxServiceError = BoxServiceError;
+type ToolCallArguments = Record<string, unknown> | string | null | undefined;
 
 interface AgentDef {
   promptThread: (
@@ -237,7 +247,7 @@ interface AgentDef {
   ) => Effect.Effect<
     PromptThreadAgentStream,
     SandboxServiceError | ExaServiceError | AgentError | ConvexError,
-    BoxService | ConvexPrivateService | ExaService
+    BoxService | ConvexPrivateService | ExaService | AutumnService
   >;
 }
 
@@ -269,6 +279,34 @@ interface ResolvedSandboxAdapter {
     cwd?: string;
   }) => Effect.Effect<SandboxExecuteCommandResult, SandboxServiceError>;
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const parseToolCallArguments = (value: ToolCallArguments) => {
+  if (typeof value !== "string") {
+    return isRecord(value) ? value : null;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const toExaSearchInput = (value: ToolCallArguments): ExaSearchWebInput | null => {
+  const parsed = parseToolCallArguments(value);
+  return parsed && typeof parsed.query === "string"
+    ? (parsed as unknown as ExaSearchWebInput)
+    : null;
+};
+
+const toExaGetWebContentInput = (value: ToolCallArguments): ExaGetWebContentInput | null => {
+  const parsed = parseToolCallArguments(value);
+  return parsed && Array.isArray(parsed.urls) ? (parsed as unknown as ExaGetWebContentInput) : null;
+};
 
 const serializeMessageContent = (content: unknown) => {
   if (content === undefined) {
@@ -564,6 +602,7 @@ const createPromptThread =
   (input) =>
     Effect.gen(function* () {
       const exa = yield* ExaService;
+      const autumn = yield* AutumnService;
       const convex = yield* ConvexPrivateService;
       const promptPreview = getPromptPreview(input.prompt);
       const runStartedAt = Date.now();
@@ -706,6 +745,8 @@ const createPromptThread =
             timestamp: Date.now(),
           },
         ];
+        const turnCost = createEmptyTurnCostBreakdown();
+        const pendingToolCalls = new Map<string, { toolName: string; args: ToolCallArguments }>();
         const events = agentLoop(
           messages,
           createThreadContext(
@@ -735,7 +776,66 @@ const createPromptThread =
               for await (const event of events) {
                 logAgentEvent(input.threadId, event);
 
+                if (event.type === "tool_execution_start") {
+                  pendingToolCalls.set(event.toolCallId, {
+                    toolName: event.toolName,
+                    args: event.args,
+                  });
+                }
+
+                if (event.type === "tool_execution_end") {
+                  const pendingToolCall = pendingToolCalls.get(event.toolCallId);
+
+                  if (event.toolName === "exec_command" && !event.isError) {
+                    const result = isRecord(event.result?.details)
+                      ? (event.result.details as SandboxExecuteCommandResult)
+                      : null;
+
+                    turnCost.boxUsd = addUsd(turnCost.boxUsd, result?.costUsd ?? 0);
+                    turnCost.boxComputeMs += result?.computeMs ?? 0;
+                  }
+
+                  if (event.toolName === "searchWeb" && !event.isError) {
+                    turnCost.exaUsd = addUsd(
+                      turnCost.exaUsd,
+                      calculateExaSearchCostUsd(toExaSearchInput(pendingToolCall?.args)),
+                    );
+                    turnCost.exaSearchRequests += 1;
+                  }
+
+                  if (event.toolName === "getWebContent" && !event.isError) {
+                    const exaContentInput = toExaGetWebContentInput(pendingToolCall?.args);
+                    const resultCount =
+                      isRecord(event.result?.details) &&
+                      typeof event.result.details.count === "number"
+                        ? event.result.details.count
+                        : 0;
+
+                    turnCost.exaUsd = addUsd(
+                      turnCost.exaUsd,
+                      calculateExaContentCostUsd({
+                        input: exaContentInput,
+                        pageCount: resultCount,
+                      }),
+                    );
+                    turnCost.exaContentPages += resultCount;
+                    if (exaContentInput?.summary) {
+                      turnCost.exaSummaryPages += resultCount;
+                    }
+                    if (exaContentInput?.highlightsQuery) {
+                      turnCost.exaHighlightPages += resultCount;
+                    }
+                  }
+
+                  pendingToolCalls.delete(event.toolCallId);
+                }
+
+                if (event.type === "message_end" && event.message.role === "assistant") {
+                  turnCost.modelUsd = addUsd(turnCost.modelUsd, event.message.usage.cost.total);
+                }
+
                 if (event.type === "agent_end") {
+                  turnCost.totalUsd = addUsd(turnCost.modelUsd, turnCost.boxUsd, turnCost.exaUsd);
                   const storedMessages = await Effect.runPromise(
                     Effect.forEach(event.messages, (message: AgentMessage) =>
                       serializePersistedMessage(input.threadId, message),
@@ -758,12 +858,50 @@ const createPromptThread =
                     }),
                   );
 
+                  await Effect.runPromise(
+                    autumn
+                      .trackUsage({
+                        userId: input.userId,
+                        valueUsd: turnCost.totalUsd,
+                        idempotencyKey: `${input.threadId}:${runStartedAt}`,
+                        properties: {
+                          threadId: input.threadId,
+                          sandboxId: ensuredSandbox.id,
+                          modelId: selectedModel.id,
+                          providerModelId: selectedModel.model.id,
+                          modelUsd: turnCost.modelUsd,
+                          boxUsd: turnCost.boxUsd,
+                          exaUsd: turnCost.exaUsd,
+                          exaSearchRequests: turnCost.exaSearchRequests,
+                          exaContentPages: turnCost.exaContentPages,
+                          exaSummaryPages: turnCost.exaSummaryPages,
+                          exaHighlightPages: turnCost.exaHighlightPages,
+                          boxComputeMs: turnCost.boxComputeMs,
+                        },
+                      })
+                      .pipe(
+                        Effect.catchCause((cause) =>
+                          Effect.sync(() => {
+                            console.error("Failed to track Autumn usage for agent run", {
+                              threadId: input.threadId,
+                              userId: input.userId,
+                              error: getErrorMessage(Cause.squash(cause)),
+                            });
+                          }),
+                        ),
+                      ),
+                  );
+
                   const result = buildPromptResult(input, ensuredSandbox.id, event.messages);
 
                   console.log("Agent run finished", {
                     threadId: input.threadId,
                     sandboxId: ensuredSandbox.id,
                     sandboxProvider: threadSandbox.providerLabel,
+                    costUsd: turnCost.totalUsd,
+                    modelUsd: turnCost.modelUsd,
+                    boxUsd: turnCost.boxUsd,
+                    exaUsd: turnCost.exaUsd,
                     messageCount: result.messageCount,
                     totalPersistedMessages:
                       (persistedThread?.thread.messageCount ?? 0) + storedMessages.length,

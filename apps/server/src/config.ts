@@ -13,8 +13,8 @@ export const PROJECT_CONFIG_FILENAME = "btca.config.jsonc";
 export const GLOBAL_DATA_DIR = "~/.local/share/btca";
 export const CONFIG_SCHEMA_URL = "https://btca.dev/btca.schema.json";
 
-export const DEFAULT_MODEL = "claude-haiku-4-5";
-export const DEFAULT_PROVIDER = "opencode";
+export const DEFAULT_MODEL = "gpt-5.4-mini";
+export const DEFAULT_PROVIDER = "openai";
 export const DEFAULT_PROVIDER_TIMEOUT_MS = 300_000;
 export const DEFAULT_MAX_STEPS = 40;
 
@@ -528,6 +528,33 @@ const mergeResources = (
   };
 };
 
+const findNearestLocalConfigPath = async (startupDirectory: string): Promise<string | null> => {
+  let currentDirectory = startupDirectory;
+
+  while (true) {
+    const candidatePath = path.join(currentDirectory, PROJECT_CONFIG_FILENAME);
+
+    try {
+      const stats = await Fs.stat(candidatePath);
+      if (stats.isFile()) {
+        return candidatePath;
+      }
+    } catch (cause) {
+      if (!(cause && typeof cause === "object" && "code" in cause && cause.code === "ENOENT")) {
+        throw cause;
+      }
+    }
+
+    const parentDirectory = path.dirname(currentDirectory);
+
+    if (parentDirectory === currentDirectory) {
+      return null;
+    }
+
+    currentDirectory = parentDirectory;
+  }
+};
+
 const resolveDataDirectory = ({
   startupDirectory,
   globalConfigPath,
@@ -560,7 +587,15 @@ const resolveDataDirectory = ({
 const loadSnapshot = (startupDirectory: string) =>
   Effect.gen(function* () {
     const globalConfigPath = path.join(expandHome(GLOBAL_CONFIG_DIR), GLOBAL_CONFIG_FILENAME);
-    const localConfigPath = path.join(startupDirectory, PROJECT_CONFIG_FILENAME);
+    const localConfigPath =
+      (yield* Effect.tryPromise({
+        try: () => findNearestLocalConfigPath(startupDirectory),
+        catch: (cause) =>
+          new ConfigError({
+            message: "Failed to discover the local project config.",
+            cause,
+          }),
+      })) ?? path.join(startupDirectory, PROJECT_CONFIG_FILENAME);
 
     const globalConfig = yield* readConfigFile(globalConfigPath);
     const localConfig = yield* readConfigFile(localConfigPath);

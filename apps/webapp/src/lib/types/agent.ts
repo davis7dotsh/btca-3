@@ -45,6 +45,8 @@ export interface SandboxExecuteCommandResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly output: string;
+  readonly computeMs?: number;
+  readonly costUsd?: number;
 }
 
 export interface PromptThreadAgentRequestInput {
@@ -407,6 +409,14 @@ export const isSandboxExecuteCommandResult = (
   }
 
   if (value.cwd !== undefined && typeof value.cwd !== "string") {
+    return false;
+  }
+
+  if (value.computeMs !== undefined && typeof value.computeMs !== "number") {
+    return false;
+  }
+
+  if (value.costUsd !== undefined && typeof value.costUsd !== "number") {
     return false;
   }
 

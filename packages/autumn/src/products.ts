@@ -19,8 +19,8 @@ export const autumnProducts = [
     items: [
       {
         type: "feature",
-        feature_id: "chat_messages",
-        included_usage: 5,
+        feature_id: "usage_usd",
+        included_usage: 1,
       },
     ],
     properties: {
@@ -49,20 +49,8 @@ export const autumnProducts = [
       },
       {
         type: "feature",
-        feature_id: "sandbox_hours",
+        feature_id: "usage_usd",
         included_usage: 6,
-        interval: "month",
-      },
-      {
-        type: "feature",
-        feature_id: "tokens_in",
-        included_usage: 1_500_000,
-        interval: "month",
-      },
-      {
-        type: "feature",
-        feature_id: "tokens_out",
-        included_usage: 300_000,
         interval: "month",
       },
     ],

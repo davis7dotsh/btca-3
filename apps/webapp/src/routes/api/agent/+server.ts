@@ -3,6 +3,7 @@ import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import { Data, Effect, Schema, Stream } from "effect";
 import { runtime } from "$lib/runtime";
 import { AgentService } from "$lib/services/agent";
+import { AutumnService } from "$lib/services/autumn";
 import { AuthService } from "$lib/services/auth";
 import { BoxServiceError } from "$lib/services/box";
 import {
@@ -211,6 +212,7 @@ export const POST: RequestHandler = async (event) => {
               }),
           ),
         );
+        const autumn = yield* AutumnService;
         const body = yield* Effect.tryPromise({
           try: () => event.request.json(),
           catch: (cause) =>
@@ -233,6 +235,22 @@ export const POST: RequestHandler = async (event) => {
             ),
           ),
         );
+        const allowed = yield* autumn.checkUsageBalance({
+          userId: user.userId,
+          email: user.email,
+          name: user.user.firstName,
+          requiredBalance: 0.000001,
+        });
+
+        if (!allowed) {
+          return yield* Effect.fail(
+            new AgentRequestError({
+              status: 402,
+              message: "No usage remaining. Upgrade to Pro to continue.",
+            }),
+          );
+        }
+
         const agent = yield* AgentService;
         const { events, sandboxId, threadId, model } = yield* agent.promptThread({
           ...body,

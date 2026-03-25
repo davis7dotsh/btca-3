@@ -1,0 +1,29 @@
+{
+  "$schema": "https://btca.dev/btca.schema.json",
+  "provider": "openai",
+  "model": "gpt-5.4-mini",
+  "resources": [
+    {
+      "type": "git",
+      "name": "svelte",
+      "url": "https://github.com/sveltejs/svelte",
+      "branch": "main",
+      "specialNotes": "This is the main Svelte framework repository.",
+    },
+    {
+      "type": "git",
+      "name": "sveltekit",
+      "url": "https://github.com/sveltejs/kit",
+      "branch": "main",
+      "specialNotes": "This is the SvelteKit repository.",
+    },
+    {
+      "type": "git",
+      "name": "svelte-docs",
+      "url": "https://github.com/sveltejs/svelte.dev",
+      "branch": "main",
+      "searchPath": "apps/svelte.dev",
+      "specialNotes": "This is the Svelte docs website repository.",
+    },
+  ],
+}

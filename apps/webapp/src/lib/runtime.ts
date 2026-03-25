@@ -3,6 +3,7 @@ import { NodeServices } from "@effect/platform-node";
 import { error } from "@sveltejs/kit";
 import { Cause, Data, Effect, Exit, Layer, ManagedRuntime } from "effect";
 import { AgentError, AgentService } from "./services/agent";
+import { AutumnService, AutumnServiceError } from "./services/autumn";
 import { AuthError, AuthService } from "./services/auth";
 import { BoxService, BoxServiceError } from "./services/box";
 import { ConvexError, ConvexPrivateService } from "./services/convex";
@@ -11,6 +12,7 @@ import { ExaService, ExaServiceError } from "./services/exa";
 const appLayer = Layer.mergeAll(
   NodeServices.layer,
   ConvexPrivateService.layer,
+  AutumnService.layer,
   AuthService.layer,
   ExaService.layer,
   BoxService.layer,
@@ -77,7 +79,13 @@ const serializeUnknown = (value: unknown): unknown => {
 
 const toPublicError = (
   errorValue: Pick<
-    GenericError | ConvexError | AuthError | ExaServiceError | BoxServiceError | AgentError,
+    | GenericError
+    | ConvexError
+    | AuthError
+    | ExaServiceError
+    | BoxServiceError
+    | AgentError
+    | AutumnServiceError,
     "message" | "kind" | "timestamp" | "traceId"
   >,
 ) => ({
@@ -94,7 +102,8 @@ const logTaggedError = (
     | AuthError
     | ExaServiceError
     | BoxServiceError
-    | AgentError,
+    | AgentError
+    | AutumnServiceError,
 ) => {
   if (errorValue instanceof ConvexError) {
     console.error("Convex error", {
@@ -162,6 +171,19 @@ const logTaggedError = (
     return;
   }
 
+  if (errorValue instanceof AutumnServiceError) {
+    console.error("Autumn service error", {
+      traceId: errorValue.traceId,
+      kind: errorValue.kind,
+      timestamp: errorValue.timestamp,
+      operation: errorValue.operation,
+      message: errorValue.message,
+      cause: serializeUnknown(errorValue.cause),
+    });
+
+    return;
+  }
+
   console.error("Application error", {
     traceId: errorValue.traceId,
     kind: errorValue.kind,
@@ -175,9 +197,16 @@ const logTaggedError = (
 export const effectRunner = async <T>(
   effect: Effect.Effect<
     T,
-    GenericError | ConvexError | AuthError | ExaServiceError | BoxServiceError | AgentError,
+    | GenericError
+    | ConvexError
+    | AuthError
+    | ExaServiceError
+    | BoxServiceError
+    | AgentError
+    | AutumnServiceError,
     | NodeServices.NodeServices
     | ConvexPrivateService
+    | AutumnService
     | AuthService
     | ExaService
     | BoxService
@@ -197,7 +226,8 @@ export const effectRunner = async <T>(
           reason.error instanceof AuthError ||
           reason.error instanceof ExaServiceError ||
           reason.error instanceof BoxServiceError ||
-          reason.error instanceof AgentError
+          reason.error instanceof AgentError ||
+          reason.error instanceof AutumnServiceError
         ) {
           logTaggedError(reason.error);
         } else {
@@ -235,6 +265,10 @@ export const effectRunner = async <T>(
       }
 
       if (firstError.value instanceof AgentError) {
+        return error(500, toPublicError(firstError.value));
+      }
+
+      if (firstError.value instanceof AutumnServiceError) {
         return error(500, toPublicError(firstError.value));
       }
 
