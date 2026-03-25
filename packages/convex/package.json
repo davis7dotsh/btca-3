@@ -9,6 +9,10 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./api": "./src/api.ts",
+    "./data-model": "./src/data-model.ts",
+    "./auth.config": "./convex/auth.config.ts",
+    "./schema": "./convex/schema.ts",
     "./convex.config.js": "./convex/convex.config.ts",
     "./package.json": "./package.json"
   },
@@ -16,6 +20,8 @@
     "access": "public",
     "exports": {
       ".": "./dist/src/index.mjs",
+      "./api": "./dist/src/api.mjs",
+      "./data-model": "./dist/src/data-model.mjs",
       "./convex.config.js": "./dist/convex/convex.config.mjs",
       "./package.json": "./package.json"
     }
@@ -25,6 +31,9 @@
     "dev": "vp pack --watch",
     "check": "vp check",
     "prepublishOnly": "vp run build"
+  },
+  "dependencies": {
+    "convex-helpers": "^0.1.114"
   },
   "devDependencies": {
     "@types/node": "catalog:",

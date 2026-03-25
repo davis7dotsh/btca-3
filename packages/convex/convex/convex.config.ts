@@ -1,5 +1,5 @@
-import { defineComponent } from "convex/server";
+import { defineApp } from "convex/server";
 
-const component = defineComponent("btca_convex");
+const app: ReturnType<typeof defineApp> = defineApp();
 
-export default component;
+export default app;

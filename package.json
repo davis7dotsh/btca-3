@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "ready": "vp fmt && vp lint && vp run test -r && vp run build -r",
-    "dev": "vp run webapp#dev"
+    "dev": "vp run @btca/webapp#dev"
   },
   "devDependencies": {
+    "@sveltejs/kit": "catalog:",
     "vite-plus": "catalog:"
   },
   "engines": {
