@@ -541,6 +541,7 @@ const printAskStream = (stream: ReadableStream<Uint8Array>) =>
       const decoder = new TextDecoder();
       let buffer = "";
       let assistantLineOpen = false;
+      let failedMessage: string | null = null;
 
       const ensureTrailingBreak = () => {
         if (assistantLineOpen) {
@@ -564,13 +565,23 @@ const printAskStream = (stream: ReadableStream<Uint8Array>) =>
 
         if (eventName === "done") {
           ensureTrailingBreak();
-          process.stdout.write("\nDone.\n");
+          if (failedMessage === null) {
+            process.stdout.write("\nDone.\n");
+          }
           return;
         }
 
         if (eventName === "error" && data && typeof data === "object") {
           ensureTrailingBreak();
-          process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
+          const message =
+            "message" in data && typeof data.message === "string"
+              ? data.message
+              : JSON.stringify(data, null, 2);
+
+          if (failedMessage !== message) {
+            failedMessage = message;
+            process.stdout.write(`Error: ${message}\n`);
+          }
           return;
         }
 
@@ -631,6 +642,24 @@ const printAskStream = (stream: ReadableStream<Uint8Array>) =>
           const message = "message" in outerEvent ? outerEvent.message : null;
 
           if (message && typeof message === "object" && "role" in message) {
+            if (
+              message.role === "assistant" &&
+              "stopReason" in message &&
+              message.stopReason === "error"
+            ) {
+              const errorMessage =
+                "errorMessage" in message && typeof message.errorMessage === "string"
+                  ? message.errorMessage
+                  : "The model request failed.";
+
+              ensureTrailingBreak();
+              if (failedMessage !== errorMessage) {
+                failedMessage = errorMessage;
+                process.stdout.write(`Error: ${errorMessage}\n`);
+              }
+              return;
+            }
+
             if (message.role === "assistant" && assistantLineOpen) {
               process.stdout.write("\n");
               assistantLineOpen = false;

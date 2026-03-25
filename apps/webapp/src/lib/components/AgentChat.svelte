@@ -190,7 +190,7 @@
 
 	const formatAssistantMessageForCopy = (message: AssistantMessage) =>
 		message.parts
-			.map((part) => (part.type === 'text' ? part.content.trim() : formatToolForCopy(part.tool)))
+			.flatMap((part) => (part.type === 'text' ? [part.content.trim()] : []))
 			.filter((part) => part.length > 0)
 			.join('\n\n')
 			.trim();
@@ -211,7 +211,7 @@
 			case 'user':
 				return `User:\n${message.content.trim()}`;
 			case 'assistant': {
-				const content = getAssistantText(message).trim();
+				const content = formatAssistantMessageForCopy(message);
 				return content ? `Assistant:\n${content}` : '';
 			}
 			case 'system':
@@ -1271,10 +1271,9 @@
 	async function copyAttachedMessage(message: AssistantMessage) {
 		const prompt = getPromptForAssistantMessage(message.id);
 		const assistantText = formatAssistantMessageForCopy(message);
-		const sections = [
-			prompt ? `Original prompt:\n${prompt.content.trim()}` : null,
-			assistantText ? `Assistant reply:\n${assistantText}` : null
-		].filter((value): value is string => Boolean(value && value.trim()));
+		const sections = [prompt?.content.trim(), assistantText].filter(
+			(value): value is string => Boolean(value && value.trim())
+		);
 
 		if (sections.length === 0) {
 			setMessageCopyStatus(message.id, 'error');

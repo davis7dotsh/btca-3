@@ -145,6 +145,25 @@ const textEncoder = new TextEncoder();
 const toSseChunk = (event: string, data: unknown) =>
   textEncoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
+const getAssistantErrorMessage = (message: unknown) => {
+  if (
+    typeof message !== "object" ||
+    message === null ||
+    !("role" in message) ||
+    message.role !== "assistant" ||
+    !("stopReason" in message) ||
+    message.stopReason !== "error"
+  ) {
+    return undefined;
+  }
+
+  if ("errorMessage" in message && typeof message.errorMessage === "string") {
+    return message.errorMessage;
+  }
+
+  return "The model request failed.";
+};
+
 export const RoutesLive = Layer.mergeAll(
   HttpRouter.add(
     "GET",
@@ -315,6 +334,8 @@ export const RoutesLive = Layer.mergeAll(
 
       const stream = Stream.fromAsyncIterable(
         (async function* () {
+          let sentError = false;
+
           yield toSseChunk("start", {
             threadId: streamResult.threadId,
             provider: streamResult.provider,
@@ -323,16 +344,42 @@ export const RoutesLive = Layer.mergeAll(
             workspaceDir: streamResult.workspaceDir,
           });
 
-          for await (const event of streamResult.events) {
-            yield toSseChunk(event.type, {
+          try {
+            for await (const event of streamResult.events) {
+              yield toSseChunk(event.type, {
+                threadId: streamResult.threadId,
+                event,
+              });
+
+              if (event.type === "message_end") {
+                const errorMessage = getAssistantErrorMessage(event.message);
+
+                if (errorMessage) {
+                  sentError = true;
+                  yield toSseChunk("error", {
+                    threadId: streamResult.threadId,
+                    provider: streamResult.provider,
+                    modelId: streamResult.modelId,
+                    message: errorMessage,
+                  });
+                }
+              }
+            }
+          } catch (error) {
+            sentError = true;
+            yield toSseChunk("error", {
               threadId: streamResult.threadId,
-              event,
+              provider: streamResult.provider,
+              modelId: streamResult.modelId,
+              message: getErrorMessage(error),
             });
           }
 
-          yield toSseChunk("done", {
-            threadId: streamResult.threadId,
-          });
+          if (!sentError) {
+            yield toSseChunk("done", {
+              threadId: streamResult.threadId,
+            });
+          }
         })(),
         (error) => error,
       );

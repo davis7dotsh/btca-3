@@ -1,7 +1,7 @@
 {
   "$schema": "https://btca.dev/btca.schema.json",
-  "provider": "openai-codex",
-  "model": "gpt-5.4-mini",
+  "provider": "opencode",
+  "model": "mimo-v2-omni-free",
   "resources": [
     {
       "type": "git",
