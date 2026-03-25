@@ -1,5 +1,10 @@
 Project guidelines:
 
+- app boundaries:
+- `apps/cli` is the local CLI distributed to users as part of the npm package
+- `apps/server` is the local server that runs on the user's machine for the npm package/CLI
+- `apps/webapp` is a separate hosted web app with a different agent implementation; do not assume server/cli architecture applies there
+
 - use `vp` as the package manager and command runner
 - when installing new packages, use `vp install` instead of manually editing `package.json`
 - use modern svelte and sveltekit patterns and primitives
