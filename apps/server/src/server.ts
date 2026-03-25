@@ -8,6 +8,9 @@ import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as HttpServer from "effect/unstable/http/HttpServer";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as Http from "node:http";
+import { ConfigLive } from "./config.ts";
+
+export { Config, ConfigError } from "./config.ts";
 
 export interface HealthResponse {
   readonly ok: true;
@@ -53,6 +56,7 @@ const makeServerLayer = ({
   const nodeServerLayer = NodeHttpServer.layer(Http.createServer, { host, port });
 
   return Layer.mergeAll(
+    ConfigLive,
     nodeServerLayer,
     HttpRouter.serve(RoutesLive).pipe(Layer.provide(nodeServerLayer)),
   );
