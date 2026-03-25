@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { getHumanErrorMessage } from '$lib/errors';
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 	import {
 		isAssistantMessage,
@@ -216,7 +217,7 @@
 				<div class="bc-card p-4 text-sm text-[hsl(var(--bc-fg-muted))]">Loading threads...</div>
 			{:else if mcpThreadsQuery.error}
 				<div class="bc-card border-[hsl(var(--bc-error))] p-4 text-sm text-[hsl(var(--bc-error))]">
-					{mcpThreadsQuery.error.message}
+					{getHumanErrorMessage(mcpThreadsQuery.error, 'Failed to load MCP threads.')}
 				</div>
 			{:else if (mcpThreadsQuery.data?.length ?? 0) === 0}
 				<div class="bc-card border-dashed p-4 text-sm text-[hsl(var(--bc-fg-muted))]">
@@ -336,7 +337,7 @@
 					<div
 						class="bc-card border-[hsl(var(--bc-error))] p-4 text-sm text-[hsl(var(--bc-error))]"
 					>
-						{threadQuery.error.message}
+						{getHumanErrorMessage(threadQuery.error, 'Failed to load the MCP transcript.')}
 					</div>
 				{:else if timelineItems.length === 0}
 					<div class="bc-card border-dashed p-4 text-sm text-[hsl(var(--bc-fg-muted))]">

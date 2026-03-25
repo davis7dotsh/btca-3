@@ -20,8 +20,6 @@
 
 <div class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
 	<p class="font-semibold">{parsedError.message}</p>
-	<p class="mt-1 text-red-700">{parsedError.kind}</p>
-	<p class="mt-1 text-red-600">{parsedError.timestamp}</p>
 	{#if parsedError.traceId}
 		<p class="mt-2 text-red-700">Share this trace ID if you need support: {parsedError.traceId}</p>
 	{/if}

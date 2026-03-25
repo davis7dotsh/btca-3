@@ -17,6 +17,8 @@ import type {
   PromptThreadAgentRequestInput,
   PromptThreadAgentStream,
   PromptThreadAgentInput,
+  SandboxExecuteCommandResult,
+  SandboxReadFileResult,
   StoredAgentThreadContext,
   StoredAgentThreadMessage,
 } from "$lib/types/agent";
@@ -24,12 +26,6 @@ import { isPersistableAgentMessage } from "$lib/types/agent";
 import type { TaggedResourcePromptResource } from "$lib/types/resources";
 import { BoxService, BoxServiceError } from "./box";
 import { ConvexError, ConvexPrivateService } from "./convex";
-import {
-  type DaytonaExecuteCommandResult,
-  type DaytonaReadFileResult,
-  DaytonaService,
-  DaytonaServiceError,
-} from "./daytona";
 import {
   EXA_DATE_PATTERN,
   type ExaDef,
@@ -233,7 +229,7 @@ Use this ability to answer the user's question.
 const buildBasePrompt = (workspaceDir: string) =>
   BASE_PROMPT.replaceAll("__WORKSPACE_DIR__", workspaceDir);
 
-type SandboxServiceError = DaytonaServiceError | BoxServiceError;
+type SandboxServiceError = BoxServiceError;
 
 interface AgentDef {
   promptThread: (
@@ -241,18 +237,14 @@ interface AgentDef {
   ) => Effect.Effect<
     PromptThreadAgentStream,
     SandboxServiceError | ExaServiceError | AgentError | ConvexError,
-    DaytonaService | BoxService | ConvexPrivateService | ExaService
+    BoxService | ConvexPrivateService | ExaService
   >;
 }
 
 interface SandboxAdapter {
   readonly providerLabel: string;
   readonly defaultModelId?: string;
-  readonly resolve: () => Effect.Effect<
-    ResolvedSandboxAdapter,
-    SandboxServiceError,
-    DaytonaService | BoxService
-  >;
+  readonly resolve: () => Effect.Effect<ResolvedSandboxAdapter, SandboxServiceError, BoxService>;
 }
 
 interface ResolvedSandboxAdapter {
@@ -261,6 +253,7 @@ interface ResolvedSandboxAdapter {
   readonly workspaceDir: string;
   readonly ensureThreadSandbox: (
     threadId: string,
+    boxId?: string,
   ) => Effect.Effect<{ id: string }, SandboxServiceError>;
   readonly readFile: (input: {
     threadId: string;
@@ -268,13 +261,13 @@ interface ResolvedSandboxAdapter {
     path: string;
     startLine?: number;
     endLine?: number;
-  }) => Effect.Effect<DaytonaReadFileResult, SandboxServiceError>;
+  }) => Effect.Effect<SandboxReadFileResult, SandboxServiceError>;
   readonly executeCommand: (input: {
     threadId: string;
     boxId?: string;
     command: string;
     cwd?: string;
-  }) => Effect.Effect<DaytonaExecuteCommandResult, SandboxServiceError>;
+  }) => Effect.Effect<SandboxExecuteCommandResult, SandboxServiceError>;
 }
 
 const serializeMessageContent = (content: unknown) => {
@@ -415,7 +408,7 @@ const createReadFileTool = (sandbox: ResolvedSandboxAdapter, threadId: string) =
         details: result,
       };
     },
-  }) satisfies AgentTool<typeof readFileSchema, DaytonaReadFileResult>;
+  }) satisfies AgentTool<typeof readFileSchema, SandboxReadFileResult>;
 
 const createExecCommandTool = (sandbox: ResolvedSandboxAdapter, threadId: string) =>
   ({
@@ -448,7 +441,7 @@ const createExecCommandTool = (sandbox: ResolvedSandboxAdapter, threadId: string
         details: result,
       };
     },
-  }) satisfies AgentTool<typeof execCommandSchema, DaytonaExecuteCommandResult>;
+  }) satisfies AgentTool<typeof execCommandSchema, SandboxExecuteCommandResult>;
 
 const createSearchWebTool = (exa: ExaDef) =>
   ({
@@ -663,25 +656,38 @@ const createPromptThread =
         }
 
         const resolvedSandbox = yield* sandbox.resolve();
-        const ensuredSandbox = yield* resolvedSandbox.ensureThreadSandbox(input.threadId);
-        const threadSandbox: ResolvedSandboxAdapter =
-          resolvedSandbox.providerLabel === "Upstash Box"
-            ? {
-                ...resolvedSandbox,
-                ensureThreadSandbox: () => Effect.succeed(ensuredSandbox),
-                readFile: (toolInput) =>
-                  resolvedSandbox.readFile({
-                    ...toolInput,
-                    boxId: ensuredSandbox.id,
-                  }),
-                executeCommand: (toolInput) =>
-                  resolvedSandbox.executeCommand({
-                    ...toolInput,
-                    boxId: ensuredSandbox.id,
-                  }),
-              }
-            : resolvedSandbox;
+        const ensuredSandbox = yield* resolvedSandbox.ensureThreadSandbox(
+          input.threadId,
+          persistedThread?.thread.sandboxId ?? undefined,
+        );
+        const threadSandbox: ResolvedSandboxAdapter = {
+          ...resolvedSandbox,
+          ensureThreadSandbox: () => Effect.succeed(ensuredSandbox),
+          readFile: (toolInput) =>
+            resolvedSandbox.readFile({
+              ...toolInput,
+              boxId: ensuredSandbox.id,
+            }),
+          executeCommand: (toolInput) =>
+            resolvedSandbox.executeCommand({
+              ...toolInput,
+              boxId: ensuredSandbox.id,
+            }),
+        };
         const selectedModel = getAgentModel(input.modelId ?? resolvedSandbox.defaultModelId);
+
+        yield* convex.mutation({
+          func: api.private.agentThreads.setThreadState,
+          args: {
+            threadId: input.threadId,
+            userId: input.userId,
+            timestamp: Date.now(),
+            status: "running",
+            activity: promptPreview,
+            sandboxId: ensuredSandbox.id,
+            isMcp: input.isMcp,
+          },
+        });
 
         console.log("Agent run started", {
           threadId: input.threadId,
@@ -775,38 +781,6 @@ const createPromptThread =
       }).pipe(Effect.tapError(markThreadError));
     });
 
-const daytonaSandboxAdapter: SandboxAdapter = {
-  providerLabel: "Daytona",
-  resolve: () =>
-    Effect.gen(function* () {
-      const daytona = yield* DaytonaService;
-
-      return {
-        providerLabel: "Daytona",
-        workspaceDir: "/workspace",
-        ensureThreadSandbox: (threadId: string) =>
-          daytona
-            .ensureThreadSandbox({
-              threadId,
-            })
-            .pipe(Effect.map((sandbox) => ({ id: sandbox.id }))),
-        readFile: (input) =>
-          daytona.readFile({
-            threadId: input.threadId,
-            path: input.path,
-            startLine: input.startLine,
-            endLine: input.endLine,
-          }),
-        executeCommand: (input) =>
-          daytona.executeCommand({
-            threadId: input.threadId,
-            command: input.command,
-            cwd: input.cwd,
-          }),
-      } satisfies ResolvedSandboxAdapter;
-    }),
-};
-
 const boxSandboxAdapter: SandboxAdapter = {
   providerLabel: "Upstash Box",
   defaultModelId: defaultAgentModelId,
@@ -818,9 +792,9 @@ const boxSandboxAdapter: SandboxAdapter = {
         providerLabel: "Upstash Box",
         defaultModelId: defaultAgentModelId,
         workspaceDir: "/workspace/home",
-        ensureThreadSandbox: (threadId: string) =>
+        ensureThreadSandbox: (threadId: string, boxId?: string) =>
           box
-            .ensureThreadBox({ threadId })
+            .ensureThreadBox({ threadId, boxId })
             .pipe(Effect.map((resolved) => ({ id: resolved.box.id }))),
         readFile: (input) =>
           box.readFile({
@@ -843,14 +817,6 @@ const boxSandboxAdapter: SandboxAdapter = {
 
 export class AgentService extends ServiceMap.Service<AgentService, AgentDef>()("AgentService") {
   static readonly layer = Layer.sync(AgentService, () => ({
-    promptThread: createPromptThread(daytonaSandboxAdapter),
-  }));
-}
-
-export class BoxHybridAgentService extends ServiceMap.Service<BoxHybridAgentService, AgentDef>()(
-  "BoxHybridAgentService",
-) {
-  static readonly layer = Layer.sync(BoxHybridAgentService, () => ({
     promptThread: createPromptThread(boxSandboxAdapter),
   }));
 }

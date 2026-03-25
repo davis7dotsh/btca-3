@@ -2,24 +2,19 @@ import { randomUUID } from "node:crypto";
 import { NodeServices } from "@effect/platform-node";
 import { error } from "@sveltejs/kit";
 import { Cause, Data, Effect, Exit, Layer, ManagedRuntime } from "effect";
-import { AgentError, AgentService, BoxHybridAgentService } from "./services/agent";
+import { AgentError, AgentService } from "./services/agent";
 import { AuthError, AuthService } from "./services/auth";
 import { BoxService, BoxServiceError } from "./services/box";
-import { BoxThreadChatService } from "./services/boxThreadChat";
 import { ConvexError, ConvexPrivateService } from "./services/convex";
-import { DaytonaService, DaytonaServiceError } from "./services/daytona";
 import { ExaService, ExaServiceError } from "./services/exa";
 
 const appLayer = Layer.mergeAll(
   NodeServices.layer,
   ConvexPrivateService.layer,
   AuthService.layer,
-  DaytonaService.layer,
   ExaService.layer,
   BoxService.layer,
-  BoxThreadChatService.layer,
   AgentService.layer,
-  BoxHybridAgentService.layer,
 );
 
 export const runtime = ManagedRuntime.make(appLayer);
@@ -82,13 +77,7 @@ const serializeUnknown = (value: unknown): unknown => {
 
 const toPublicError = (
   errorValue: Pick<
-    | GenericError
-    | ConvexError
-    | AuthError
-    | DaytonaServiceError
-    | ExaServiceError
-    | BoxServiceError
-    | AgentError,
+    GenericError | ConvexError | AuthError | ExaServiceError | BoxServiceError | AgentError,
     "message" | "kind" | "timestamp" | "traceId"
   >,
 ) => ({
@@ -103,7 +92,6 @@ const logTaggedError = (
     | GenericError
     | ConvexError
     | AuthError
-    | DaytonaServiceError
     | ExaServiceError
     | BoxServiceError
     | AgentError,
@@ -128,19 +116,6 @@ const logTaggedError = (
       traceId: errorValue.traceId,
       kind: errorValue.kind,
       timestamp: errorValue.timestamp,
-      message: errorValue.message,
-      cause: serializeUnknown(errorValue.cause),
-    });
-
-    return;
-  }
-
-  if (errorValue instanceof DaytonaServiceError) {
-    console.error("Daytona service error", {
-      traceId: errorValue.traceId,
-      kind: errorValue.kind,
-      timestamp: errorValue.timestamp,
-      operation: errorValue.operation,
       message: errorValue.message,
       cause: serializeUnknown(errorValue.cause),
     });
@@ -200,22 +175,13 @@ const logTaggedError = (
 export const effectRunner = async <T>(
   effect: Effect.Effect<
     T,
-    | GenericError
-    | ConvexError
-    | AuthError
-    | DaytonaServiceError
-    | ExaServiceError
-    | BoxServiceError
-    | AgentError,
+    GenericError | ConvexError | AuthError | ExaServiceError | BoxServiceError | AgentError,
     | NodeServices.NodeServices
     | ConvexPrivateService
     | AuthService
-    | DaytonaService
     | ExaService
     | BoxService
-    | BoxThreadChatService
     | AgentService
-    | BoxHybridAgentService
   >,
 ) => {
   const exit = await runtime.runPromiseExit(effect);
@@ -229,7 +195,6 @@ export const effectRunner = async <T>(
           reason.error instanceof GenericError ||
           reason.error instanceof ConvexError ||
           reason.error instanceof AuthError ||
-          reason.error instanceof DaytonaServiceError ||
           reason.error instanceof ExaServiceError ||
           reason.error instanceof BoxServiceError ||
           reason.error instanceof AgentError
@@ -259,10 +224,6 @@ export const effectRunner = async <T>(
 
       if (firstError.value instanceof AuthError) {
         return error(401, toPublicError(firstError.value));
-      }
-
-      if (firstError.value instanceof DaytonaServiceError) {
-        return error(500, toPublicError(firstError.value));
       }
 
       if (firstError.value instanceof ExaServiceError) {

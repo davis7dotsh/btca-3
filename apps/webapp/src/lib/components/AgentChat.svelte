@@ -7,6 +7,7 @@
 	import { tick } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { api } from '@btca/convex/api';
+	import { getHumanErrorMessage } from '$lib/errors';
 	import MarkdownMessage from '$lib/components/MarkdownMessage.svelte';
 	import {
 		agentModelOptions,
@@ -19,10 +20,10 @@
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 	import type {
 		AgentPromptStreamEvent,
-		DaytonaExecuteCommandResult,
-		DaytonaReadFileResult,
 		ExecCommandToolArgs,
 		ReadFileToolArgs,
+		SandboxExecuteCommandResult,
+		SandboxReadFileResult,
 		StoredAgentThreadMessage
 	} from '$lib/types/agent';
 	import {
@@ -51,7 +52,7 @@
 		toolType: 'read_file';
 		status: ToolStatus;
 		args: ReadFileToolArgs | null;
-		details: DaytonaReadFileResult | null;
+		details: SandboxReadFileResult | null;
 		content: string;
 	}
 
@@ -60,7 +61,7 @@
 		toolType: 'exec_command';
 		status: ToolStatus;
 		args: ExecCommandToolArgs | null;
-		details: DaytonaExecuteCommandResult | null;
+		details: SandboxExecuteCommandResult | null;
 		content: string;
 	}
 
@@ -437,7 +438,7 @@
 
 	const getToolGroupKey = (tools: ToolCallState[]) => tools[0]?.id ?? 'empty';
 
-	const getReadFileLines = (details: DaytonaReadFileResult | null) => {
+	const getReadFileLines = (details: SandboxReadFileResult | null) => {
 		if (!details || details.content.length === 0 || details.lineEnd < details.lineStart) {
 			return [];
 		}
@@ -448,7 +449,7 @@
 		}));
 	};
 
-	const getReadFileMeta = (details: DaytonaReadFileResult | null) => {
+	const getReadFileMeta = (details: SandboxReadFileResult | null) => {
 		if (!details) {
 			return 'Awaiting file details';
 		}
@@ -727,20 +728,8 @@
 	const resourceItems = $derived(resourcesQuery.data ?? []);
 	const routeThreadId = $derived(page.params.id ?? null);
 	const selectedModel = $derived(getAgentModelOption(selectedModelId));
-	const chatRouteBase = $derived(
-		routeBase === '/app/box/chat'
-			? resolve('/app/box/chat')
-			: routeBase === '/app/box-hybrid/chat'
-				? resolve('/app/box-hybrid/chat')
-				: resolve('/app/chat')
-	);
-	const resolvedAgentApiPath = $derived(
-		agentApiPath === '/api/box-agent'
-			? resolve('/api/box-agent')
-			: agentApiPath === '/api/box-hybrid-agent'
-				? resolve('/api/box-hybrid-agent')
-				: resolve('/api/agent')
-	);
+	const chatRouteBase = $derived(resolve(routeBase));
+	const resolvedAgentApiPath = $derived(resolve(agentApiPath));
 	const assistantMessages = $derived(
 		messages.filter((message): message is AssistantMessage => message.role === 'assistant')
 	);
@@ -952,14 +941,6 @@
 	}
 
 	function getThreadPath(targetThreadId: string) {
-		if (routeBase === '/app/box/chat') {
-			return resolve(`/app/box/chat/${encodeURIComponent(targetThreadId)}`);
-		}
-
-		if (routeBase === '/app/box-hybrid/chat') {
-			return resolve(`/app/box-hybrid/chat/${encodeURIComponent(targetThreadId)}`);
-		}
-
 		return resolve(`/app/chat/${encodeURIComponent(targetThreadId)}`);
 	}
 
@@ -1441,7 +1422,7 @@
 		try {
 			activeThreadId = await ensureThreadId();
 		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Failed to create the thread.';
+			const message = getHumanErrorMessage(error, 'Failed to create the thread.');
 			errorMessage = message;
 			appendSystemMessage(message);
 			return;
@@ -1517,7 +1498,7 @@
 				return;
 			}
 
-			const message = error instanceof Error ? error.message : 'The chat request failed.';
+			const message = getHumanErrorMessage(error, 'The chat request failed.');
 			errorMessage = message;
 			updateAssistantMessage(assistantId, (current) => ({ ...current, pending: false }));
 			appendSystemMessage(message);
@@ -1578,8 +1559,10 @@
 			threadMessageCache[threadId] = cloneChatMessages(trimmedMessages);
 			await submitPrompt(message.content, { clearDraft: false });
 		} catch (error) {
-			const retryError =
-				error instanceof Error ? error.message : 'Failed to retry the selected prompt.';
+			const retryError = getHumanErrorMessage(
+				error,
+				'Failed to retry the selected prompt.'
+			);
 			errorMessage = retryError;
 			appendSystemMessage(retryError);
 		} finally {

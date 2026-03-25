@@ -11,9 +11,41 @@ import type {
   UserMessage,
 } from "@mariozechner/pi-ai";
 import type { AgentModelOption } from "$lib/models";
-import type { DaytonaExecuteCommandResult, DaytonaReadFileResult } from "$lib/services/daytona";
 
-export type { DaytonaExecuteCommandResult, DaytonaReadFileResult } from "$lib/services/daytona";
+export interface SandboxReadFileInput {
+  readonly threadId: string;
+  readonly path: string;
+  readonly startLine?: number;
+  readonly endLine?: number;
+}
+
+export interface SandboxReadFileResult {
+  readonly sandboxId: string;
+  readonly path: string;
+  readonly content: string;
+  readonly requestedStartLine?: number;
+  readonly requestedEndLine?: number;
+  readonly lineStart: number;
+  readonly lineEnd: number;
+  readonly totalLines: number;
+}
+
+export interface SandboxExecuteCommandInput {
+  readonly threadId: string;
+  readonly command: string;
+  readonly cwd?: string;
+  readonly env?: Record<string, string>;
+}
+
+export interface SandboxExecuteCommandResult {
+  readonly sandboxId: string;
+  readonly command: string;
+  readonly cwd?: string;
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly output: string;
+}
 
 export interface PromptThreadAgentRequestInput {
   readonly threadId: string;
@@ -165,7 +197,7 @@ export interface ReadFileToolCallEndEvent {
   readonly toolCallId: string;
   readonly isError: boolean;
   readonly content: string;
-  readonly details: DaytonaReadFileResult | null;
+  readonly details: SandboxReadFileResult | null;
   readonly timestamp: number;
 }
 
@@ -175,7 +207,7 @@ export interface ExecCommandToolCallEndEvent {
   readonly toolCallId: string;
   readonly isError: boolean;
   readonly content: string;
-  readonly details: DaytonaExecuteCommandResult | null;
+  readonly details: SandboxExecuteCommandResult | null;
   readonly timestamp: number;
 }
 
@@ -334,7 +366,7 @@ export const isExecCommandToolArgs = (value: unknown): value is ExecCommandToolA
   return true;
 };
 
-export const isDaytonaReadFileResult = (value: unknown): value is DaytonaReadFileResult => {
+export const isSandboxReadFileResult = (value: unknown): value is SandboxReadFileResult => {
   if (
     !isRecord(value) ||
     typeof value.sandboxId !== "string" ||
@@ -359,9 +391,9 @@ export const isDaytonaReadFileResult = (value: unknown): value is DaytonaReadFil
   return true;
 };
 
-export const isDaytonaExecuteCommandResult = (
+export const isSandboxExecuteCommandResult = (
   value: unknown,
-): value is DaytonaExecuteCommandResult => {
+): value is SandboxExecuteCommandResult => {
   if (
     !isRecord(value) ||
     typeof value.sandboxId !== "string" ||

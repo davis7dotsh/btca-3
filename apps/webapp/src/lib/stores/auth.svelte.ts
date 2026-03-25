@@ -1,7 +1,8 @@
 import { createContext, onMount } from "svelte";
+import { getHumanErrorMessage } from "$lib/errors";
 
 const toAuthErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : "Failed to load the current session.";
+  getHumanErrorMessage(error, "Failed to load the current session.");
 
 export interface AuthUser {
   readonly id: string;
@@ -43,7 +44,8 @@ class AuthStore {
       }
 
       if (!response.ok) {
-        throw new Error(`Session request failed with ${response.status}`);
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(payload?.message ?? "Failed to load the current session.");
       }
 
       const data = (await response.json()) as {

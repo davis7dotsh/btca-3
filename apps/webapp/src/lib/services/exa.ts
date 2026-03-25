@@ -120,7 +120,7 @@ const toExaServiceError = ({
   cause instanceof ExaServiceError
     ? cause
     : createExaServiceError({
-        message: cause instanceof Error ? cause.message : message,
+        message,
         kind,
         operation,
         cause,

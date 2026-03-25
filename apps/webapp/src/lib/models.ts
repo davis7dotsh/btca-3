@@ -1,8 +1,6 @@
 import type { Api, Model, Provider } from "@mariozechner/pi-ai";
 
-type SupportedAgentModel =
-  | Model<"openai-responses">
-  | Model<"anthropic-messages">;
+type SupportedAgentModel = Model<"openai-responses"> | Model<"anthropic-messages">;
 
 interface AgentModelDefinition {
   readonly id: string;
@@ -28,8 +26,7 @@ const hasConfiguredPricing = (model: SupportedAgentModel) =>
   model.cost.cacheRead > 0 ||
   model.cost.cacheWrite > 0;
 
-const cloneModel = (model: SupportedAgentModel): SupportedAgentModel =>
-  structuredClone(model);
+const cloneModel = (model: SupportedAgentModel): SupportedAgentModel => structuredClone(model);
 
 const modelDefinitions = [
   {
@@ -84,37 +81,30 @@ export type AgentModelId = (typeof modelDefinitions)[number]["id"];
 
 export const defaultAgentModelId = modelDefinitions[0].id;
 
-const toAgentModelOption = (
-  definition: AgentModelDefinition,
-): AgentModelOption => ({
+const toAgentModelOption = (definition: AgentModelDefinition): AgentModelOption => ({
   id: definition.id as AgentModelId,
   label: definition.label,
   description: definition.description,
-  pricingConfigured:
-    definition.pricingConfigured ?? hasConfiguredPricing(definition.model),
+  pricingConfigured: definition.pricingConfigured ?? hasConfiguredPricing(definition.model),
   provider: definition.model.provider,
   api: definition.model.api,
   modelId: definition.model.id,
 });
 
-export const agentModelOptions: AgentModelOption[] =
-  modelDefinitions.map(toAgentModelOption);
+export const agentModelOptions: AgentModelOption[] = modelDefinitions.map(toAgentModelOption);
 
 export const getAgentModelOption = (modelId: string | null | undefined) =>
-  agentModelOptions.find((definition) => definition.id === modelId) ??
-  agentModelOptions[0];
+  agentModelOptions.find((definition) => definition.id === modelId) ?? agentModelOptions[0];
 
 export const getAgentModel = (modelId: string | null | undefined) => {
   const definition: AgentModelDefinition =
-    modelDefinitions.find((candidate) => candidate.id === modelId) ??
-    modelDefinitions[0];
+    modelDefinitions.find((candidate) => candidate.id === modelId) ?? modelDefinitions[0];
 
   return {
     id: definition.id as AgentModelId,
     label: definition.label,
     description: definition.description,
-    pricingConfigured:
-      definition.pricingConfigured ?? hasConfiguredPricing(definition.model),
+    pricingConfigured: definition.pricingConfigured ?? hasConfiguredPricing(definition.model),
     model: cloneModel(definition.model),
   };
 };
@@ -130,7 +120,5 @@ export const findAgentModelOptionForProviderModel = ({
 }) =>
   agentModelOptions.find(
     (candidate) =>
-      candidate.api === api &&
-      candidate.provider === provider &&
-      candidate.modelId === modelId,
+      candidate.api === api && candidate.provider === provider && candidate.modelId === modelId,
   ) ?? null;

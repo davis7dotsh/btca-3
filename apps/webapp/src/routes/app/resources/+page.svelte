@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import { api } from '@btca/convex/api';
+	import { getHumanErrorMessage } from '$lib/errors';
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 
 	const authContext = getAuthContext();
@@ -39,7 +40,7 @@
 			newResourceNotes = '';
 			await goto(resolve(`/app/resources/${resourceId}`));
 		} catch (error) {
-			createError = error instanceof Error ? error.message : 'Failed to create the resource.';
+			createError = getHumanErrorMessage(error, 'Failed to create the resource.');
 		} finally {
 			isCreating = false;
 		}
@@ -108,7 +109,9 @@
 					</div>
 				{:else if resourcesQuery.error}
 					<div class="bc-card p-5">
-						<p class="text-sm text-red-500">{resourcesQuery.error.message}</p>
+						<p class="text-sm text-red-500">
+							{getHumanErrorMessage(resourcesQuery.error, 'Failed to load resources.')}
+						</p>
 					</div>
 				{:else if (resourcesQuery.data?.length ?? 0) === 0}
 					<div class="border border-dashed border-[hsl(var(--bc-border))] p-8 text-center">

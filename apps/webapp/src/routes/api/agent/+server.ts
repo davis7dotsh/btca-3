@@ -4,9 +4,10 @@ import { Data, Effect, Schema, Stream } from "effect";
 import { runtime } from "$lib/runtime";
 import { AgentService } from "$lib/services/agent";
 import { AuthService } from "$lib/services/auth";
+import { BoxServiceError } from "$lib/services/box";
 import {
-  isDaytonaExecuteCommandResult,
-  isDaytonaReadFileResult,
+  isSandboxExecuteCommandResult,
+  isSandboxReadFileResult,
   isExecCommandToolArgs,
   isReadFileToolArgs,
   type AgentPromptStreamEvent,
@@ -155,13 +156,13 @@ const normalizeAgentEvent = (event: AgentEvent): AgentPromptStreamEvent | null =
           toolCallId: event.toolCallId,
           isError: event.isError,
           content,
-          details: isDaytonaReadFileResult(details) ? details : null,
+          details: isSandboxReadFileResult(details) ? details : null,
           timestamp,
         };
       }
 
       if (event.toolName === "exec_command") {
-        const normalizedDetails = isDaytonaExecuteCommandResult(details) ? details : null;
+        const normalizedDetails = isSandboxExecuteCommandResult(details) ? details : null;
 
         return {
           type: "tool_call_end",
@@ -296,6 +297,16 @@ export const POST: RequestHandler = async (event) => {
         },
         { status: error.status },
       );
+    }
+
+    if (error instanceof BoxServiceError) {
+      console.error("Failed to start agent stream", {
+        traceId: error.traceId,
+        kind: error.kind,
+        message: error.message,
+      });
+
+      return json({ message: error.message }, { status: 500 });
     }
 
     console.error("Failed to start agent stream", {

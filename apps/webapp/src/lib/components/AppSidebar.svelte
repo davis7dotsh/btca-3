@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import { api } from '@btca/convex/api';
+	import { getHumanErrorMessage } from '$lib/errors';
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 	import { theme } from '$lib/stores/theme.svelte';
 	import type { AgentThreadListItem } from '$lib/types/agent';
@@ -31,8 +32,6 @@
 
 	const threadItems = $derived(threadsQuery.data ?? []);
 	const chatPath = resolve('/app/chat');
-	const boxChatPath = resolve('/app/box/chat');
-	const boxHybridChatPath = resolve('/app/box-hybrid/chat');
 	const mcpPath = resolve('/app/mcp');
 	const resourcesPath = resolve('/app/resources');
 	const settingsPath = resolve('/app/settings');
@@ -40,16 +39,8 @@
 	const isOnPiChat = $derived(
 		page.url.pathname === chatPath || page.url.pathname.startsWith(`${chatPath}/`)
 	);
-	const isOnBoxChat = $derived(
-		page.url.pathname === boxChatPath || page.url.pathname.startsWith(`${boxChatPath}/`)
-	);
-	const isOnBoxHybridChat = $derived(
-		page.url.pathname === boxHybridChatPath || page.url.pathname.startsWith(`${boxHybridChatPath}/`)
-	);
-	const isOnAnyChat = $derived(isOnPiChat || isOnBoxChat || isOnBoxHybridChat);
-	const activeChatPath = $derived(
-		isOnBoxChat ? boxChatPath : isOnBoxHybridChat ? boxHybridChatPath : chatPath
-	);
+	const isOnAnyChat = $derived(isOnPiChat);
+	const activeChatPath = $derived(chatPath);
 	const currentThreadId = $derived(isOnAnyChat ? (page.params.id ?? null) : null);
 
 	let threadMenuOpen = $state<string | null>(null);
@@ -64,14 +55,6 @@
 	}
 
 	function getThreadPath(threadId: string) {
-		if (isOnBoxChat) {
-			return resolve(`/app/box/chat/${encodeURIComponent(threadId)}`);
-		}
-
-		if (isOnBoxHybridChat) {
-			return resolve(`/app/box-hybrid/chat/${encodeURIComponent(threadId)}`);
-		}
-
 		return resolve(`/app/chat/${encodeURIComponent(threadId)}`);
 	}
 
@@ -113,21 +96,9 @@
 <aside
 	class="flex w-56 shrink-0 flex-col border-r border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface))]"
 >
-	<div class="grid grid-cols-3 gap-2 px-3 pt-3">
+	<div class="px-3 pt-3">
 		<a href={chatPath} class={['bc-btn justify-center text-xs', isOnPiChat && 'bc-btn-primary']}>
-			Pi Chat
-		</a>
-		<a
-			href={boxChatPath}
-			class={['bc-btn justify-center text-xs', isOnBoxChat && 'bc-btn-primary']}
-		>
-			Box Chat
-		</a>
-		<a
-			href={boxHybridChatPath}
-			class={['bc-btn justify-center text-xs', isOnBoxHybridChat && 'bc-btn-primary']}
-		>
-			Box Hybrid
+			Chat
 		</a>
 	</div>
 
@@ -140,7 +111,7 @@
 			<div class="p-3 text-xs text-[hsl(var(--bc-fg-muted))]">Loading...</div>
 		{:else if threadsQuery.error}
 			<div class="p-3 text-xs text-[hsl(var(--bc-error))]">
-				{threadsQuery.error.message}
+				{getHumanErrorMessage(threadsQuery.error, 'Failed to load threads.')}
 			</div>
 		{:else if threadItems.length === 0}
 			<div class="p-3 text-xs text-[hsl(var(--bc-fg-muted))]">No threads yet.</div>

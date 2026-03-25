@@ -3,11 +3,11 @@ import { env } from "$env/dynamic/private";
 import { Agent, Box, type Box as UpstashBox } from "@upstash/box";
 import { Cause, Data, Effect, Layer, ServiceMap } from "effect";
 import type {
-  DaytonaExecuteCommandInput,
-  DaytonaExecuteCommandResult,
-  DaytonaReadFileInput,
-  DaytonaReadFileResult,
-} from "./daytona";
+  SandboxExecuteCommandInput,
+  SandboxExecuteCommandResult,
+  SandboxReadFileInput,
+  SandboxReadFileResult,
+} from "$lib/types/agent";
 
 type BoxOperation =
   | "getClient"
@@ -15,83 +15,12 @@ type BoxOperation =
   | "createThreadBox"
   | "ensureThreadBox"
   | "readFile"
-  | "executeCommand"
-  | "runThreadAgent";
+  | "executeCommand";
 
 const DEFAULT_BOX_TIMEOUT_MS = 10 * 60 * 1_000;
 const BOX_RUNTIME = "node";
 const BOX_WORKSPACE_CWD = "/workspace/home";
 export const BOX_CODEX_MODEL = "openai/gpt-5.4-mini";
-export const BOX_AGENT_RUN_TIMEOUT_MS = 2 * 60 * 1_000;
-
-const BOX_AGENT_INSTRUCTIONS = `
-You are btca, an expert research agent. Your job is to answer questions from the user with the tools at your disposal.
-
-You have access to a sandbox where you can clone git repos, install npm packages, run shell commands, execute Python, search the web, and read files.
-
-When executing python code, keep the code very simple and fast. It is being executed in a sandbox with limited resources, prefer normal shell commands over python code whenever possible.
-
-Use this ability to answer the user's question.
-
-<resources_contract>
-- Tool use order: git, npm, then web search. Always start with git or npm if possible, move on to web search only if necessary.
-- Use "${BOX_WORKSPACE_CWD}" as the working directory for everything
-- Clone repos and create fake npm projects to clone/explore packages from within "${BOX_WORKSPACE_CWD}"
-- You are free to organize the workspace as you see fit, but keep it tidy and easy to navigate
-- If you are searching in a github repo, do not try and get blobs directly from github.com. Clone and search the repo instead.
-</resources_contract>
-
-<personality_and_writing_controls>
-- Persona: an expert professional researcher
-- Channel: internal
-- Emotional register: direct, calm, and concise
-- Formatting: bulleted/numbered lists are good + codeblocks
-- Length: be thorough with your response, don't let it get too long though
-- Default follow-through: don't ask permission to do the research, just do it and answer the question. ask for clarifications + suggest good follow up if needed
-- When you are about to do a set of tool calls, output a very concise explanation of what you are going to do and why.
-</personality_and_writing_controls>
-
-<parallel_tool_calling>
-- When multiple retrieval or lookup steps are independent, prefer parallel tool calls to reduce wall-clock time.
-- Do not parallelize steps that have prerequisite dependencies or where one result determines the next action.
-- After parallel retrieval, pause to synthesize the results before making more calls.
-- Prefer selective parallelism: parallelize independent evidence gathering, not speculative or redundant tool use.
-</parallel_tool_calling>
-
-<web_research_guidance>
-- use the exa mcp to search the web
-- Keep the number of web searches to a minimum, be very precise with your queries and don't overuse the tool
-</web_research_guidance>
-
-<tool_persistence_rules>
-- Use tools whenever they materially improve correctness, completeness, or grounding.
-- Do NOT stop early to save tool calls.
-- Keep calling tools until either:
-	1) the task is complete
-	2) you've hit a doom loop where none of the tools function or something is missing
-- If a tool returns empty/partial results, retry with a different strategy (query, filters, alternate source).
-</tool_persistence_rules>
-
-<completeness_contract>
-- Treat the task as incomplete until you have a complete answer to the user's question that's grounded
-- If any item is blocked by missing data, mark it [blocked] and state exactly what is missing.
-</completeness_contract>
-
-<dig_deeper_nudge>
-- Don't stop at the first plausible answer.
-- Look for second-order issues, edge cases, and missing constraints.
-</dig_deeper_nudge>
-
-<output_contract>
-- Return a thorough answer to the user's question with real code examples
-- Always output in proper markdown format
-- Always include sources for your answer:
-	- For git resources, source links must be full github blob urls
-	- In "Sources", format git citations as markdown links: - [repo/relative/path.ext](https://github.com/.../blob/.../repo/relative/path.ext)".'
-	- For local resources cite local file paths
-	- For npm resources cite the path in the npm package
-</output_contract>
-`;
 
 export class BoxServiceError extends Data.TaggedError("BoxServiceError")<{
   readonly message: string;
@@ -107,22 +36,6 @@ export interface EnsureThreadBoxInput {
   readonly boxId?: string;
 }
 
-export interface RunThreadAgentInput extends EnsureThreadBoxInput {
-  readonly prompt: string;
-  readonly resourceXml?: string;
-}
-
-export interface BoxThreadAgentRunResult {
-  readonly threadId: string;
-  readonly boxId: string;
-  readonly runId: string;
-  readonly createdBox: boolean;
-  readonly model: string;
-  readonly output: string;
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-}
-
 export interface BoxDef {
   getBox: (boxId: string) => Effect.Effect<UpstashBox, BoxServiceError>;
   createThreadBox: (input: EnsureThreadBoxInput) => Effect.Effect<UpstashBox, BoxServiceError>;
@@ -130,14 +43,11 @@ export interface BoxDef {
     input: EnsureThreadBoxInput,
   ) => Effect.Effect<{ box: UpstashBox; created: boolean }, BoxServiceError>;
   readFile: (
-    input: DaytonaReadFileInput & { readonly boxId?: string },
-  ) => Effect.Effect<DaytonaReadFileResult, BoxServiceError>;
+    input: SandboxReadFileInput & { readonly boxId?: string },
+  ) => Effect.Effect<SandboxReadFileResult, BoxServiceError>;
   executeCommand: (
-    input: DaytonaExecuteCommandInput & { readonly boxId?: string },
-  ) => Effect.Effect<DaytonaExecuteCommandResult, BoxServiceError>;
-  runThreadAgent: (
-    input: RunThreadAgentInput,
-  ) => Effect.Effect<BoxThreadAgentRunResult, BoxServiceError>;
+    input: SandboxExecuteCommandInput & { readonly boxId?: string },
+  ) => Effect.Effect<SandboxExecuteCommandResult, BoxServiceError>;
 }
 
 const getRequiredValue = (value: string | undefined, key: string) => {
@@ -203,7 +113,7 @@ const toBoxServiceError = ({
   cause instanceof BoxServiceError
     ? cause
     : createBoxServiceError({
-        message: cause instanceof Error ? cause.message : message,
+        message,
         kind,
         operation,
         cause,
@@ -211,9 +121,9 @@ const toBoxServiceError = ({
 
 const parseReadFileResult = (
   content: string,
-  input: DaytonaReadFileInput,
+  input: SandboxReadFileInput,
   boxId: string,
-): DaytonaReadFileResult => {
+): SandboxReadFileResult => {
   if (
     input.startLine !== undefined &&
     input.endLine !== undefined &&
@@ -254,14 +164,6 @@ const prepareThreadBox = async (box: UpstashBox) => {
 
   return box;
 };
-
-const buildThreadBoxPrompt = (prompt: string, resourceXml?: string) => {
-  const appendix = resourceXml?.trim() ? `\n\n${resourceXml.trim()}` : "";
-  return `${BOX_AGENT_INSTRUCTIONS}${appendix}\n\nUser request:\n${prompt.trim()}`;
-};
-
-export const buildBoxThreadAgentPrompt = (prompt: string, resourceXml?: string) =>
-  buildThreadBoxPrompt(prompt, resourceXml);
 
 const getBoxConfig = () => ({
   apiKey: getRequiredValue(env.UPSTASH_BOX_API_KEY, "UPSTASH_BOX_API_KEY"),
@@ -422,7 +324,7 @@ export class BoxService extends ServiceMap.Service<BoxService, BoxDef>()("BoxSer
             stdout: output,
             stderr: "",
             output,
-          } satisfies DaytonaExecuteCommandResult;
+          } satisfies SandboxExecuteCommandResult;
         },
         catch: (cause) =>
           toBoxServiceError({
@@ -433,98 +335,12 @@ export class BoxService extends ServiceMap.Service<BoxService, BoxDef>()("BoxSer
           }),
       });
 
-    const runThreadAgent: BoxDef["runThreadAgent"] = (input) =>
-      Effect.gen(function* () {
-        const prepared = yield* ensureThreadBox(input);
-        const fullPrompt = buildThreadBoxPrompt(input.prompt, input.resourceXml);
-
-        return yield* Effect.tryPromise({
-          try: async () => {
-            await prepared.box.configureModel(BOX_CODEX_MODEL);
-
-            console.log("Starting Upstash Box agent run", {
-              threadId: input.threadId,
-              boxId: prepared.box.id,
-              createdBox: prepared.created,
-              model: BOX_CODEX_MODEL,
-            });
-
-            const streamRun = await prepared.box.agent.stream({
-              prompt: fullPrompt,
-              timeout: BOX_AGENT_RUN_TIMEOUT_MS,
-              onToolUse: (tool) => {
-                console.log("Box tool call", {
-                  threadId: input.threadId,
-                  boxId: prepared.box.id,
-                  toolName: tool.name,
-                  input: tool.input,
-                });
-              },
-            });
-
-            for await (const _chunk of streamRun) {
-              void _chunk;
-            }
-
-            const output = streamRun.result.trim();
-
-            console.log("Box run finished", {
-              threadId: input.threadId,
-              boxId: prepared.box.id,
-              runId: streamRun.id,
-              status: streamRun.status,
-              inputTokens: streamRun.cost.inputTokens,
-              outputTokens: streamRun.cost.outputTokens,
-              outputLength: output.length,
-            });
-
-            try {
-              const logs = await streamRun.logs();
-              for (const entry of logs) {
-                console.log("Box run log", {
-                  threadId: input.threadId,
-                  boxId: prepared.box.id,
-                  level: entry.level,
-                  message: entry.message,
-                  timestamp: entry.timestamp,
-                });
-              }
-            } catch (error) {
-              console.warn("Failed to fetch Box run logs", {
-                threadId: input.threadId,
-                boxId: prepared.box.id,
-                error: error instanceof Error ? error.message : String(error),
-              });
-            }
-
-            return {
-              threadId: input.threadId,
-              boxId: prepared.box.id,
-              runId: streamRun.id,
-              createdBox: prepared.created,
-              model: BOX_CODEX_MODEL,
-              output,
-              inputTokens: streamRun.cost.inputTokens,
-              outputTokens: streamRun.cost.outputTokens,
-            } satisfies BoxThreadAgentRunResult;
-          },
-          catch: (cause) =>
-            toBoxServiceError({
-              cause,
-              operation: "runThreadAgent",
-              message: `Failed to run the Upstash Box agent for thread ${input.threadId}`,
-              kind: "box_run_thread_agent_error",
-            }),
-        });
-      });
-
     return {
       getBox,
       createThreadBox,
       ensureThreadBox,
       readFile,
       executeCommand,
-      runThreadAgent,
     };
   });
 }

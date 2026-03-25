@@ -122,7 +122,7 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
           }),
         catch: (cause) =>
           createAuthError({
-            message: cause instanceof Error ? cause.message : "Failed to generate login URL",
+            message: "Failed to generate the login URL.",
             kind: "authorization_url_error",
             cause,
           }),
@@ -142,8 +142,7 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
             }),
           catch: (cause) =>
             createAuthError({
-              message:
-                cause instanceof Error ? cause.message : "Failed to authenticate the callback",
+              message: "Failed to authenticate the login callback.",
               kind: "callback_authentication_error",
               cause,
             }),
@@ -174,7 +173,7 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
           try: () => session.authenticate(),
           catch: (cause) =>
             createAuthError({
-              message: cause instanceof Error ? cause.message : "Failed to read session",
+              message: "Failed to read the current session.",
               kind: "session_authentication_error",
               cause,
             }),
@@ -201,7 +200,7 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
           try: () => session.refresh({ cookiePassword: getCookiePassword() }),
           catch: (cause) =>
             createAuthError({
-              message: cause instanceof Error ? cause.message : "Failed to refresh session",
+              message: "Failed to refresh the current session.",
               kind: "session_refresh_error",
               cause,
             }),
@@ -244,7 +243,7 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
           try: () => session.getLogoutUrl({ returnTo }),
           catch: (cause) =>
             createAuthError({
-              message: cause instanceof Error ? cause.message : "Failed to create logout URL",
+              message: "Failed to create the logout URL.",
               kind: "logout_url_error",
               cause,
             }),

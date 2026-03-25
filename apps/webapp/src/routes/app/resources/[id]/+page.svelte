@@ -5,6 +5,7 @@
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import type { Id } from '@btca/convex/data-model';
 	import { api } from '@btca/convex/api';
+	import { getHumanErrorMessage } from '$lib/errors';
 	import { resourceItemKindLabels } from '$lib/resources';
 	import { resourceItemKinds, type ResourceItemKind } from '$lib/types/resources';
 	import { getAuthContext } from '$lib/stores/auth.svelte';
@@ -123,7 +124,7 @@
 				notes: resourceNotes.trim() || undefined
 			});
 		} catch (error) {
-			resourceError = error instanceof Error ? error.message : 'Failed to save the resource.';
+			resourceError = getHumanErrorMessage(error, 'Failed to save the resource.');
 		} finally {
 			isSavingResource = false;
 		}
@@ -145,7 +146,7 @@
 			await convex.mutation(api.authed.resources.remove, { resourceId });
 			await goto(resolve('/app/resources'));
 		} catch (error) {
-			resourceError = error instanceof Error ? error.message : 'Failed to delete the resource.';
+			resourceError = getHumanErrorMessage(error, 'Failed to delete the resource.');
 		} finally {
 			isDeletingResource = false;
 		}
@@ -171,7 +172,7 @@
 			});
 			resetNewItemForm();
 		} catch (error) {
-			itemError = error instanceof Error ? error.message : 'Failed to create the resource item.';
+			itemError = getHumanErrorMessage(error, 'Failed to create the resource item.');
 		} finally {
 			isCreatingItem = false;
 		}
@@ -199,7 +200,7 @@
 			});
 			editingItemId = null;
 		} catch (error) {
-			itemError = error instanceof Error ? error.message : 'Failed to update the resource item.';
+			itemError = getHumanErrorMessage(error, 'Failed to update the resource item.');
 		} finally {
 			activeItemMutationId = null;
 		}
@@ -222,7 +223,7 @@
 				editingItemId = null;
 			}
 		} catch (error) {
-			itemError = error instanceof Error ? error.message : 'Failed to remove the resource item.';
+			itemError = getHumanErrorMessage(error, 'Failed to remove the resource item.');
 		} finally {
 			activeItemMutationId = null;
 		}
@@ -253,7 +254,7 @@
 				itemIds: reorderedItems.map((item) => item.id as Id<'resourceItems'>)
 			});
 		} catch (error) {
-			itemError = error instanceof Error ? error.message : 'Failed to reorder the resource items.';
+			itemError = getHumanErrorMessage(error, 'Failed to reorder the resource items.');
 		} finally {
 			activeItemMutationId = null;
 		}
@@ -283,7 +284,9 @@
 			</div>
 		{:else if resourceQuery.error}
 			<div class="bc-card p-5">
-				<p class="text-sm text-red-500">{resourceQuery.error.message}</p>
+				<p class="text-sm text-red-500">
+					{getHumanErrorMessage(resourceQuery.error, 'Failed to load the resource.')}
+				</p>
 			</div>
 		{:else if resourceQuery.data === null}
 			<div class="bc-card p-5">
