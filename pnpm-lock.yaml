@@ -10,11 +10,11 @@ catalogs:
       specifier: ^1.6.0
       version: 1.6.0
     '@mariozechner/pi-agent-core':
-      specifier: ^0.57.1
-      version: 0.57.1
+      specifier: ^0.62.0
+      version: 0.62.0
     '@mariozechner/pi-ai':
-      specifier: ^0.57.1
-      version: 0.57.1
+      specifier: ^0.62.0
+      version: 0.62.0
     '@sveltejs/adapter-vercel':
       specifier: ^6.3.3
       version: 6.3.3
@@ -99,10 +99,10 @@ importers:
         version: 4.0.0-beta.40(effect@4.0.0-beta.40)(ioredis@5.10.1)
       '@mariozechner/pi-agent-core':
         specifier: 'catalog:'
-        version: 0.57.1(ws@8.20.0)(zod@4.3.6)
+        version: 0.62.0(ws@8.20.0)(zod@4.3.6)
       '@mariozechner/pi-ai':
         specifier: 'catalog:'
-        version: 0.57.1(ws@8.20.0)(zod@4.3.6)
+        version: 0.62.0(ws@8.20.0)(zod@4.3.6)
       effect:
         specifier: 4.0.0-beta.40
         version: 4.0.0-beta.40
@@ -138,11 +138,11 @@ importers:
         specifier: 'catalog:'
         version: 1.6.0(svelte@5.55.0)
       '@mariozechner/pi-agent-core':
-        specifier: ^0.57.1
-        version: 0.57.1(ws@8.20.0)(zod@4.3.6)
+        specifier: ^0.62.0
+        version: 0.62.0(ws@8.20.0)(zod@4.3.6)
       '@mariozechner/pi-ai':
-        specifier: ^0.57.1
-        version: 0.57.1(ws@8.20.0)(zod@4.3.6)
+        specifier: ^0.62.0
+        version: 0.62.0(ws@8.20.0)(zod@4.3.6)
       '@opencode-ai/sdk':
         specifier: ^1.2.27
         version: 1.3.2
@@ -979,12 +979,12 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  '@mariozechner/pi-agent-core@0.57.1':
-    resolution: {integrity: sha512-WXsBbkNWOObFGHkhixaT8GXJpHDd3+fn8QntYF+4R8Sa9WB90ENXWidO6b7vcKX+JX0jjO5dIsQxmzosARJKlg==}
+  '@mariozechner/pi-agent-core@0.62.0':
+    resolution: {integrity: sha512-SBjqgDrgKOaC+IGzFGB3jXQErv9H1QMYnWFvUg6ra6dG0ZgWFBUZb6unidngWLsmaxSDWes6KeKiVFMsr2VSEQ==}
     engines: {node: '>=20.0.0'}
 
-  '@mariozechner/pi-ai@0.57.1':
-    resolution: {integrity: sha512-Bd/J4a3YpdzJVyHLih0vDSdB0QPL4ti0XsAwtHOK/8eVhB0fHM1CpcgIrcBFJ23TMcKXMi0qamz18ERfp8tmgg==}
+  '@mariozechner/pi-ai@0.62.0':
+    resolution: {integrity: sha512-mJgryZ5RgBQG++tiETMtCQQJoH2MAhKetCfqI98NMvGydu7L9x2qC2JekQlRaAgIlTgv4MRH1UXHMEs4UweE/Q==}
     engines: {node: '>=20.0.0'}
     hasBin: true
 
@@ -4880,9 +4880,9 @@ snapshots:
       - encoding
       - supports-color
 
-  '@mariozechner/pi-agent-core@0.57.1(ws@8.20.0)(zod@4.3.6)':
+  '@mariozechner/pi-agent-core@0.62.0(ws@8.20.0)(zod@4.3.6)':
     dependencies:
-      '@mariozechner/pi-ai': 0.57.1(ws@8.20.0)(zod@4.3.6)
+      '@mariozechner/pi-ai': 0.62.0(ws@8.20.0)(zod@4.3.6)
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
       - aws-crt
@@ -4892,7 +4892,7 @@ snapshots:
       - ws
       - zod
 
-  '@mariozechner/pi-ai@0.57.1(ws@8.20.0)(zod@4.3.6)':
+  '@mariozechner/pi-ai@0.62.0(ws@8.20.0)(zod@4.3.6)':
     dependencies:
       '@anthropic-ai/sdk': 0.73.0(zod@4.3.6)
       '@aws-sdk/client-bedrock-runtime': 3.1016.0

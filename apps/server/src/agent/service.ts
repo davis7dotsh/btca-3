@@ -7,7 +7,14 @@ import {
   type AgentMessage,
   type AgentTool,
 } from "@mariozechner/pi-agent-core";
-import { Type, type Message, type Model } from "@mariozechner/pi-ai";
+import {
+  Type,
+  getModels,
+  getProviders,
+  type KnownProvider,
+  type Message,
+  type Model,
+} from "@mariozechner/pi-ai";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -102,49 +109,27 @@ const extractAssistantText = (message: Message | undefined) => {
     .join("\n\n");
 };
 
-const buildModel = (args: {
-  modelId: string;
-  provider: string;
-  baseUrl?: string;
-  providerName?: string;
-}): Model<"openai-responses"> | Model<"openai-codex-responses"> => {
-  if (args.provider === "openai-codex") {
-    return {
-      id: args.modelId,
-      name: args.providerName ?? args.modelId,
-      api: "openai-codex-responses",
-      provider: "openai-codex",
-      baseUrl: args.baseUrl ?? "https://chatgpt.com/backend-api",
-      reasoning: true,
-      input: ["text"],
-      cost: {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-      },
-      contextWindow: 128_000,
-      maxTokens: 128_000,
-    } satisfies Model<"openai-codex-responses">;
+const KNOWN_PROVIDERS = new Set<string>(getProviders());
+
+const isKnownProvider = (value: string): value is KnownProvider => KNOWN_PROVIDERS.has(value);
+
+const resolveModel = (args: { modelId: string; provider: string; baseUrl?: string }) => {
+  if (!isKnownProvider(args.provider)) {
+    return undefined;
   }
 
+  const model = getModels(args.provider).find((candidate) => candidate.id === args.modelId);
+
+  if (!model) {
+    return undefined;
+  }
+
+  const baseUrl = args.baseUrl?.trim();
+
   return {
-    id: args.modelId,
-    name: args.providerName ?? args.modelId,
-    api: "openai-responses",
-    provider: "openai",
-    baseUrl: args.baseUrl ?? "https://api.openai.com/v1",
-    reasoning: true,
-    input: ["text"],
-    cost: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-    },
-    contextWindow: 128_000,
-    maxTokens: 128_000,
-  } satisfies Model<"openai-responses">;
+    ...model,
+    baseUrl: baseUrl && baseUrl.length > 0 ? baseUrl : model.baseUrl,
+  } satisfies Model<typeof model.api>;
 };
 
 const buildSystemPrompt = (workspaceDir: string) =>
@@ -408,6 +393,20 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
             },
           ];
 
+          const resolvedModel = resolveModel({
+            modelId: selectedModelId,
+            provider: modelAuth.provider,
+            baseUrl: modelAuth.baseUrl,
+          });
+
+          if (!resolvedModel) {
+            return yield* Effect.fail(
+              new AgentError({
+                message: `Unsupported model "${selectedModelId}" for provider "${modelAuth.provider}".`,
+              }),
+            );
+          }
+
           const rawEvents = agentLoop(
             initialMessages,
             {
@@ -419,12 +418,7 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
               ],
             },
             {
-              model: buildModel({
-                modelId: selectedModelId,
-                provider: modelAuth.provider,
-                baseUrl: modelAuth.baseUrl,
-                providerName: modelAuth.providerName,
-              }),
+              model: resolvedModel,
               sessionId: resolvedThreadId,
               getApiKey: () => modelAuth.token,
               convertToLlm: (messages) =>
