@@ -14,8 +14,12 @@
   "dependencies": {
     "@btca/server": "workspace:*",
     "@effect/platform-node": "4.0.0-beta.40",
+    "@tmcp/adapter-zod": "catalog:",
+    "@tmcp/transport-stdio": "catalog:",
     "effect": "4.0.0-beta.40",
-    "jsonc-parser": "catalog:"
+    "jsonc-parser": "catalog:",
+    "tmcp": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

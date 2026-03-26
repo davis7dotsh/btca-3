@@ -100,6 +100,20 @@ type ResourcesResponse = {
   )[];
 };
 
+type AgentRunResponse = {
+  readonly run: {
+    readonly threadId: string;
+    readonly provider: string;
+    readonly modelId: string;
+    readonly resourceNames: readonly string[];
+    readonly workspaceDir: string;
+    readonly answer: string;
+    readonly messageCount: number;
+  };
+  readonly thread: unknown;
+  readonly workspace: unknown;
+};
+
 export interface ServerDef {
   readonly baseUrl: string;
   readonly quiet: boolean;
@@ -142,6 +156,11 @@ export interface ServerDef {
         },
   ) => Effect.Effect<unknown, ServerServiceError>;
   readonly removeResource: (name: string) => Effect.Effect<void, ServerServiceError>;
+  readonly ask: (args: {
+    readonly question: string;
+    readonly resourceNames?: readonly string[];
+    readonly quiet?: boolean;
+  }) => Effect.Effect<string, ServerServiceError>;
   readonly askStream: (args: {
     readonly question: string;
     readonly resourceNames: readonly string[];
@@ -226,6 +245,18 @@ const makeServerService = ({ baseUrl, quiet }: { baseUrl: string; quiet: boolean
           name,
         }),
       }).pipe(Effect.asVoid),
+    ask: ({ question, resourceNames, quiet: requestQuiet }) =>
+      rpc<AgentRunResponse>("/agent/run", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          prompt: question,
+          resourceNames,
+          quiet: requestQuiet ?? quiet,
+        }),
+      }).pipe(Effect.map((response) => response.run.answer)),
     askStream: ({ question, resourceNames, quiet: requestQuiet }) =>
       Effect.tryPromise({
         try: async () => {

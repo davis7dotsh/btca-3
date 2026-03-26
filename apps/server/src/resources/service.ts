@@ -82,11 +82,14 @@ const parseNpmReference = (
 const parseAnonymousResource = (reference: string): ResourceDefinition | undefined => {
   const trimmedReference = reference.trim();
 
-  if (trimmedReference.startsWith("file:")) {
-    const filePath = trimmedReference.slice("file:".length).trim();
+  if (trimmedReference.startsWith("file:") || trimmedReference.startsWith("local:")) {
+    const prefix = trimmedReference.startsWith("local:") ? "local:" : "file:";
+    const filePath = trimmedReference.slice(prefix.length).trim();
 
     if (filePath.length === 0) {
-      throw new Error('Anonymous file resources must include a path after "file:".');
+      throw new Error(
+        `Anonymous ${prefix.slice(0, -1)} resources must include a path after "${prefix}".`,
+      );
     }
 
     const resolvedPath = path.resolve(filePath);
@@ -94,7 +97,7 @@ const parseAnonymousResource = (reference: string): ResourceDefinition | undefin
 
     return {
       type: "local",
-      name: createAnonymousName("file", label, trimmedReference),
+      name: createAnonymousName("local", label, trimmedReference),
       path: resolvedPath,
     };
   }

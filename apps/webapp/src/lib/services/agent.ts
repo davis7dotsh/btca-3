@@ -1,4 +1,4 @@
-import { OPENAI_API_KEY, OPENCODE_API_KEY } from "$env/static/private";
+import { OPENCODE_API_KEY } from "$env/static/private";
 import {
   agentLoop,
   type AgentEvent,
@@ -6,7 +6,7 @@ import {
   type AgentMessage,
   type AgentTool,
 } from "@mariozechner/pi-agent-core";
-import type { Message, Model } from "@mariozechner/pi-ai";
+import { getEnvApiKey, type Api, type Message, type Model } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import { Cause, Data, Effect, Layer, ServiceMap } from "effect";
 import { api } from "@btca/convex/api";
@@ -403,36 +403,11 @@ const serializePersistedMessage = (
       }),
   });
 
-const logAgentEvent = (threadId: string, event: AgentEvent) => {
-  switch (event.type) {
-    case "agent_end":
-      console.log("Agent run completed", {
-        threadId,
-        messageCount: event.messages.length,
-      });
-      return;
-    case "tool_execution_start":
-      console.log("Agent tool started", {
-        threadId,
-        toolName: event.toolName,
-        toolCallId: event.toolCallId,
-      });
-      return;
-    case "tool_execution_end":
-      console.log("Agent tool finished", {
-        threadId,
-        toolName: event.toolName,
-        toolCallId: event.toolCallId,
-        isError: event.isError,
-      });
-      return;
-    default:
-      return;
-  }
-};
-
 const getEventTimestamp = (event: AgentEvent) =>
   "timestamp" in event && typeof event.timestamp === "number" ? event.timestamp : Date.now();
+
+const getFinalAssistantMessage = (messages: readonly AgentMessage[]) =>
+  [...messages].reverse().find((message) => message.role === "assistant");
 
 const buildRunMetrics = (args: {
   priceUsd: number;
@@ -595,20 +570,16 @@ const createThreadContext = (
   ],
 });
 
-const createThreadConfig = (
-  threadId: string,
-  model: Model<"openai-responses"> | Model<"anthropic-messages">,
-) =>
+const createThreadConfig = (threadId: string, model: Model<Api>) =>
   ({
     model,
     sessionId: threadId,
-    getApiKey: () => (model.api === "anthropic-messages" ? OPENCODE_API_KEY : OPENAI_API_KEY),
-    ...(model.api === "openai-responses"
-      ? {
-          reasoning: "medium" as const,
-          reasoningSummary: "concise" as const,
-        }
-      : {}),
+    getApiKey: (provider) =>
+      provider === "opencode" || provider === "opencode-go"
+        ? OPENCODE_API_KEY
+        : getEnvApiKey(provider),
+    ...(model.reasoning ? { reasoning: "medium" as const } : {}),
+    ...(model.api === "openai-responses" ? { reasoningSummary: "concise" as const } : {}),
     convertToLlm: (messages: AgentMessage[]) =>
       messages.filter(
         (message) =>
@@ -817,7 +788,6 @@ const createPromptThread =
           events: (async function* () {
             try {
               for await (const event of events) {
-                logAgentEvent(input.threadId, event);
                 const eventTimestamp = getEventTimestamp(event);
 
                 if (event.type === "tool_execution_start") {
@@ -965,11 +935,16 @@ const createPromptThread =
                   );
 
                   const result = buildPromptResult(input, ensuredSandbox.id, event.messages);
+                  const finalAssistantMessage = getFinalAssistantMessage(event.messages);
 
                   console.log("Agent run finished", {
                     threadId: input.threadId,
                     sandboxId: ensuredSandbox.id,
                     sandboxProvider: threadSandbox.providerLabel,
+                    modelId: selectedModel.id,
+                    providerModelId: selectedModel.model.id,
+                    stopReason: finalAssistantMessage?.stopReason ?? null,
+                    errorMessage: finalAssistantMessage?.errorMessage ?? null,
                     costUsd: turnCost.totalUsd,
                     totalToolCalls: runMetrics.totalToolCalls,
                     outputTokensPerSecond: runMetrics.outputTokensPerSecond,

@@ -355,19 +355,7 @@ export const POST: RequestHandler = async (event) => {
             Stream.fromAsyncIterable(
               events,
               (cause) => new AgentAsyncIterableError({ cause }),
-            ).pipe(
-              Stream.tap((event) =>
-                Effect.sync(() => {
-                  if (event.type === "agent_end") {
-                    console.log("Agent stream delivered to client", {
-                      threadId,
-                      messageCount: event.messages.length,
-                    });
-                  }
-                }),
-              ),
-              Stream.flatMap((event) => Stream.fromIterable(normalizeAgentEvent(event))),
-            ),
+            ).pipe(Stream.flatMap((event) => Stream.fromIterable(normalizeAgentEvent(event)))),
           ),
           Stream.map(toServerSentEvent),
           Stream.encodeText,

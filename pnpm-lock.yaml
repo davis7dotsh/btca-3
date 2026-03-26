@@ -21,6 +21,12 @@ catalogs:
     '@sveltejs/kit':
       specifier: ^2.55.0
       version: 2.55.0
+    '@tmcp/adapter-zod':
+      specifier: ^0.1.7
+      version: 0.1.7
+    '@tmcp/transport-stdio':
+      specifier: ^0.4.2
+      version: 0.4.2
     '@types/node':
       specifier: ^24.12.0
       version: 24.12.0
@@ -39,6 +45,9 @@ catalogs:
     jsonc-parser:
       specifier: ^3.3.1
       version: 3.3.1
+    tmcp:
+      specifier: ^1.19.3
+      version: 1.19.3
     typescript:
       specifier: ^5.9.3
       version: 5.9.3
@@ -48,6 +57,9 @@ catalogs:
     yaml:
       specifier: ^2.8.3
       version: 2.8.3
+    zod:
+      specifier: ^4.3.6
+      version: 4.3.6
 
 overrides:
   vite: npm:@voidzero-dev/vite-plus-core@latest
@@ -75,12 +87,24 @@ importers:
       '@effect/platform-node':
         specifier: 4.0.0-beta.40
         version: 4.0.0-beta.40(effect@4.0.0-beta.40)(ioredis@5.10.1)
+      '@tmcp/adapter-zod':
+        specifier: 'catalog:'
+        version: 0.1.7(tmcp@1.19.3(typescript@5.9.3))(zod@4.3.6)
+      '@tmcp/transport-stdio':
+        specifier: 'catalog:'
+        version: 0.4.2(tmcp@1.19.3(typescript@5.9.3))
       effect:
         specifier: 4.0.0-beta.40
         version: 4.0.0-beta.40
       jsonc-parser:
         specifier: 'catalog:'
         version: 3.3.1
+      tmcp:
+        specifier: 'catalog:'
+        version: 1.19.3(typescript@5.9.3)
+      zod:
+        specifier: 'catalog:'
+        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -1887,6 +1911,11 @@ packages:
     peerDependenciesMeta:
       '@tmcp/auth':
         optional: true
+
+  '@tmcp/transport-stdio@0.4.2':
+    resolution: {integrity: sha512-OLVLJzUXAKsCvenkjPf5ygli9ZcbEv3Lcei/ry+DB4T1NzvDc1oU3m41zYtHhAmbES1h6om3T9f/zonBSDFMRQ==}
+    peerDependencies:
+      tmcp: ^1.16.3
 
   '@tootallnate/quickjs-emscripten@0.23.0':
     resolution: {integrity: sha512-C5Mc6rdnsaJDjO3UpGW/CQTHtCKaYlScZTly4JIu97Jxo/odCiH0ITnDXSJPTOrEKk/ycSZ0AOgTmkDtkOsvIA==}
@@ -5740,6 +5769,10 @@ snapshots:
     dependencies:
       '@tmcp/session-manager': 0.2.1(tmcp@1.19.3(typescript@5.9.3))
       esm-env: 1.2.2
+      tmcp: 1.19.3(typescript@5.9.3)
+
+  '@tmcp/transport-stdio@0.4.2(tmcp@1.19.3(typescript@5.9.3))':
+    dependencies:
       tmcp: 1.19.3(typescript@5.9.3)
 
   '@tootallnate/quickjs-emscripten@0.23.0': {}

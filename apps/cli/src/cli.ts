@@ -31,6 +31,7 @@ import {
   setTelemetryEnabled,
   Telemetry,
 } from "./telemetry.ts";
+import { runMcpLocalSetup, runMcpServer } from "./mcp.ts";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
@@ -993,6 +994,15 @@ const serve = Cli.Command.make("serve", {}, () =>
   }),
 ).pipe(Cli.Command.withDescription("Start the local BTCA HTTP server and keep it running."));
 
+const mcpLocal = Cli.Command.make("local", {}, () => runMcpLocalSetup).pipe(
+  Cli.Command.withDescription("Print copy-paste local MCP setup for a supported harness."),
+);
+
+const mcp = Cli.Command.make("mcp", {}, () => runMcpServer).pipe(
+  Cli.Command.withDescription("Start the local BTCA MCP server over stdio."),
+  Cli.Command.withSubcommands([mcpLocal]),
+);
+
 const add = Cli.Command.make(
   "add",
   {
@@ -1623,7 +1633,7 @@ const ask = Cli.Command.make(
       Cli.Flag.withAlias("r"),
       Cli.Flag.atLeast(1),
       Cli.Flag.withDescription(
-        'Configured resource name to load, or an anonymous "file:", "git:", or "npm:" reference. Repeat -r for multiple resources.',
+        'Configured resource name to load, or an anonymous "local:", "git:", or "npm:" reference. Repeat -r for multiple resources.',
       ),
     ),
   },
@@ -1658,6 +1668,7 @@ const app = btca.pipe(
   Cli.Command.withSubcommands([
     hello,
     serve,
+    mcp,
     ask,
     connect,
     disconnect,

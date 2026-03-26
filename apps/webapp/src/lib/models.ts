@@ -1,6 +1,6 @@
-import type { Api, Model, Provider } from "@mariozechner/pi-ai";
+import { getModel, type Api, type Model, type Provider } from "@mariozechner/pi-ai";
 
-type SupportedAgentModel = Model<"openai-responses"> | Model<"anthropic-messages">;
+type SupportedAgentModel = Model<Api>;
 
 interface AgentModelDefinition {
   readonly id: string;
@@ -33,47 +33,25 @@ const modelDefinitions = [
     id: "gpt-5.4-mini",
     label: "gpt-5.4-mini",
     description: "Current default agent model.",
-    pricingConfigured: true,
-    model: {
-      id: "gpt-5.4-mini",
-      name: "GPT-5.4 Mini",
-      api: "openai-responses",
-      provider: "openai",
-      baseUrl: "https://api.openai.com/v1",
-      reasoning: true,
-      input: ["text"],
-      cost: {
-        input: 0.375,
-        output: 2.25,
-        cacheRead: 0.0375,
-        cacheWrite: 0,
-      },
-      contextWindow: 128000,
-      maxTokens: 128000,
-    },
+    model: getModel("opencode", "gpt-5.4-mini"),
+  },
+  {
+    id: "gemini-3-flash",
+    label: "gemini-3-flash",
+    description: "Fast Gemini reasoning through OpenCode Zen.",
+    model: getModel("opencode", "gemini-3-flash"),
   },
   {
     id: "claude-haiku-4-5",
-    label: "claude haiku 4.5",
-    description: "Fast and fairly precise",
-    pricingConfigured: true,
-    model: {
-      id: "claude-haiku-4-5",
-      name: "claude haiku 4.5",
-      api: "anthropic-messages",
-      provider: "opencode",
-      baseUrl: "https://opencode.ai/zen",
-      reasoning: true,
-      input: ["text", "image"],
-      cost: {
-        input: 1,
-        output: 5,
-        cacheRead: 0.1,
-        cacheWrite: 1.25,
-      },
-      contextWindow: 128000,
-      maxTokens: 128000,
-    },
+    label: "claude-haiku-4-5",
+    description: "Fast and fairly precise.",
+    model: getModel("opencode", "claude-haiku-4-5"),
+  },
+  {
+    id: "kimi-k2.5",
+    label: "kimi-k2.5",
+    description: "Strong reasoning with OpenAI-compatible streaming.",
+    model: getModel("opencode", "kimi-k2.5"),
   },
 ] as const satisfies readonly AgentModelDefinition[];
 
