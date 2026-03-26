@@ -306,21 +306,21 @@
 
 				<div class="mt-5 grid gap-3 text-sm text-[hsl(var(--bc-fg-muted))] md:grid-cols-4">
 					<div class="bc-card p-3">
-						<p class="text-[11px] font-semibold tracking-[0.14em] uppercase">Thread ID</p>
+						<p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">Thread ID</p>
 						<p class="mt-2 truncate font-mono text-xs text-[hsl(var(--bc-fg))]">
 							{selectedThread.threadId}
 						</p>
 					</div>
 					<div class="bc-card p-3">
-						<p class="text-[11px] font-semibold tracking-[0.14em] uppercase">Last Updated</p>
+						<p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">Last Updated</p>
 						<p class="mt-2 text-[hsl(var(--bc-fg))]">{formatFullDate(selectedThread.updatedAt)}</p>
 					</div>
 					<div class="bc-card p-3">
-						<p class="text-[11px] font-semibold tracking-[0.14em] uppercase">Messages</p>
+						<p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">Messages</p>
 						<p class="mt-2 text-[hsl(var(--bc-fg))]">{selectedThread.messageCount}</p>
 					</div>
 					<div class="bc-card p-3">
-						<p class="text-[11px] font-semibold tracking-[0.14em] uppercase">Sandbox</p>
+						<p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">Sandbox</p>
 						<p class="mt-2 truncate text-[hsl(var(--bc-fg))]">
 							{selectedThread.sandboxId ?? 'Not assigned yet'}
 						</p>

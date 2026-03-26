@@ -2508,7 +2508,7 @@
 					>
 						{#if resourceMentionSuggestions.length > 0}
 							<div
-								class="border-b border-[hsl(var(--bc-border))] px-4 py-3 text-xs tracking-[0.16em] text-[hsl(var(--bc-fg-muted))] uppercase"
+								class="border-b border-[hsl(var(--bc-border))] px-4 py-3 text-sm font-medium text-[hsl(var(--bc-fg-muted))]"
 							>
 								Resources
 							</div>

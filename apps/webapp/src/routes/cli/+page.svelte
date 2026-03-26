@@ -52,7 +52,7 @@
 
 		<div class="mt-4">
 			<div class="bc-card bc-ring p-5">
-				<div class="text-xs font-semibold uppercase tracking-[0.16em] bc-muted">Terminal</div>
+				<div class="text-sm font-medium bc-muted">Terminal</div>
 				<img
 					src={cliShowcase}
 					alt="btca CLI in action"

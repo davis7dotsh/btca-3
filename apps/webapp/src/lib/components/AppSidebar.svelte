@@ -39,6 +39,7 @@
 
 	const authContext = getAuthContext();
 	const convex = useConvexClient();
+	const prefetchedThreadSubscriptions = new Map<string, ReturnType<typeof convex.onUpdate>>();
 
 	const displayName = $derived(
 		authContext.currentUser?.firstName ?? authContext.currentUser?.email ?? 'User'
@@ -95,6 +96,23 @@
 		onClose();
 	}
 
+	function prefetchThread(threadId: string) {
+		if (!authContext.currentUser || prefetchedThreadSubscriptions.has(threadId)) {
+			return;
+		}
+
+		const subscription = convex.onUpdate(
+			api.authed.agentThreads.get,
+			{ threadId },
+			() => {},
+			(error) => {
+				console.error(`Failed to prefetch thread ${threadId}`, error);
+			}
+		);
+
+		prefetchedThreadSubscriptions.set(threadId, subscription);
+	}
+
 	function newThread() {
 		void goto(activeChatPath, { noScroll: true, keepFocus: true });
 		onClose();
@@ -122,10 +140,30 @@
 			userMenuOpen = false;
 		}
 	}
+
+	$effect(() => {
+		const activeThreadIds = new Set(threadItems.map((thread) => thread.threadId));
+
+		for (const [threadId, unsubscribe] of prefetchedThreadSubscriptions) {
+			if (!activeThreadIds.has(threadId)) {
+				unsubscribe();
+				prefetchedThreadSubscriptions.delete(threadId);
+			}
+		}
+	});
+
+	$effect(() => {
+		return () => {
+			for (const unsubscribe of prefetchedThreadSubscriptions.values()) {
+				unsubscribe();
+			}
+			prefetchedThreadSubscriptions.clear();
+		};
+	});
 </script>
 
 <aside
-	class="bc-sidebar-shell flex h-full min-h-0 flex-col"
+	class="bc-sidebar-shell flex h-full min-h-0 flex-col overflow-hidden"
 >
 	<div class="bc-sidebar-section">
 		<div class="flex items-start justify-between gap-3">
@@ -170,9 +208,9 @@
 		</button>
 	</div>
 
-	<div class="bc-sidebar-section min-h-0 flex-1 border-b-0 pb-0">
+	<div class="bc-sidebar-section flex min-h-0 flex-1 flex-col overflow-hidden border-b-0 pb-0">
 		<div class="mb-3 flex items-center gap-2">
-			<div class="text-[10px] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--bc-fg-muted))]">
+			<div class="text-xs font-semibold text-[hsl(var(--bc-fg-muted))]">
 				Recent Threads
 			</div>
 		</div>
@@ -197,6 +235,8 @@
 					<button
 						type="button"
 						class="min-w-0 flex-1 bg-transparent p-0 text-left"
+						onmouseenter={() => prefetchThread(thread.threadId)}
+						onfocus={() => prefetchThread(thread.threadId)}
 						onclick={() => openThread(thread.threadId)}
 					>
 						<div class="truncate text-sm font-medium text-[hsl(var(--bc-fg))]">
@@ -254,7 +294,7 @@
 
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class="bc-sidebar-footer relative border-t border-[hsl(var(--bc-border))] px-4 py-3"
+		class="bc-sidebar-footer relative shrink-0 border-t border-[hsl(var(--bc-border))] px-4 py-3"
 		onkeydown={handleUserMenuKeydown}
 	>
 		<button

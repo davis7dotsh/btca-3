@@ -114,7 +114,7 @@
 						<span class="bc-kickerDot"></span>
 						<span>{card.label}</span>
 					</div>
-					<div class="text-xs font-semibold tracking-[0.16em] uppercase bc-muted">
+					<div class="text-sm font-medium bc-muted">
 						{card.eyebrow}
 					</div>
 				</div>
@@ -203,7 +203,7 @@
 					</div>
 					<p class="bc-prose mt-3 max-w-3xl text-sm">{activePreview.title}</p>
 				</div>
-				<div class="hidden text-xs font-semibold tracking-[0.16em] uppercase bc-muted sm:block">
+				<div class="hidden text-sm font-medium bc-muted sm:block">
 					{activePreview.eyebrow}
 				</div>
 			</div>

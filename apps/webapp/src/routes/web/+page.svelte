@@ -42,7 +42,7 @@
 
 		<div class="mt-4">
 			<div class="bc-card bc-ring p-5">
-				<div class="text-xs font-semibold uppercase tracking-[0.16em] bc-muted">Chat</div>
+				<div class="text-sm font-medium bc-muted">Chat</div>
 				<img
 					src={webShowcase}
 					alt="btca chat interface"

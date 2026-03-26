@@ -153,7 +153,7 @@
 			{#each endpointCards as card (card.title)}
 				<div class="bc-card p-4">
 					<p
-						class="text-[11px] font-semibold tracking-[0.14em] text-[hsl(var(--bc-fg-muted))] uppercase"
+						class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]"
 					>
 						{card.title}
 					</p>

@@ -206,7 +206,7 @@
       </div>
 
       <div class="flex h-full flex-col justify-between p-1">
-        <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[hsl(var(--bc-fg-muted))]">
+        <p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">
           Current plan
         </p>
         <h2 class="mt-3 text-2xl font-semibold">{isFreePlan ? "Free" : "Pro"}</h2>
@@ -248,7 +248,7 @@
       <article class="bc-card p-6">
         <div class="flex items-center justify-between gap-3">
           <div>
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[hsl(var(--bc-fg-muted))]">
+            <p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">
               Free
             </p>
             <h2 class="mt-2 text-2xl font-semibold">Included</h2>
@@ -270,7 +270,7 @@
       <article class="bc-card p-6">
         <div class="flex items-center justify-between gap-3">
           <div>
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[hsl(var(--bc-fg-muted))]">
+            <p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">
               Pro
             </p>
             <h2 class="mt-2 text-2xl font-semibold">

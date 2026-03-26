@@ -497,11 +497,7 @@
 
   .bc-threadItem-active {
     border-color: color-mix(in oklab, hsl(var(--bc-accent)) 45%, hsl(var(--bc-border)));
-    background: linear-gradient(
-      180deg,
-      color-mix(in oklab, hsl(var(--bc-accent)) 10%, hsl(var(--bc-surface))),
-      hsl(var(--bc-surface))
-    );
+    background: hsl(var(--bc-surface));
   }
 
   .bc-threadItemDelete {

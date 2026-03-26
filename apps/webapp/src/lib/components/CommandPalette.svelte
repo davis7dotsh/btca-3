@@ -287,7 +287,7 @@
 				{:else}
 					{#each groupedItems as group (group.name)}
 						<div
-							class="px-5 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--bc-fg-muted))]"
+							class="px-5 pb-1 pt-3 text-xs font-semibold text-[hsl(var(--bc-fg-muted))]"
 						>
 							{group.name}
 						</div>

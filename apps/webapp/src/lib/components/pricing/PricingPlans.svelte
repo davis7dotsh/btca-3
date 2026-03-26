@@ -68,7 +68,7 @@
 		<div class="bc-card bc-reveal p-8" style="--delay: 60ms">
 			<div class="flex items-baseline justify-between">
 				<div>
-					<p class="bc-muted text-xs uppercase tracking-[0.3em]">Free</p>
+					<p class="bc-muted text-sm font-medium">Free</p>
 					<h3 class="mt-2 text-3xl font-semibold">$0</h3>
 					<p class="bc-muted text-xs">forever</p>
 				</div>
@@ -99,7 +99,7 @@
 		<div class="bc-card bc-reveal p-8" style="--delay: 90ms">
 			<div class="flex items-baseline justify-between">
 				<div>
-					<p class="bc-muted text-xs uppercase tracking-[0.3em]">Pro</p>
+					<p class="bc-muted text-sm font-medium">Pro</p>
 					<h3 class="mt-2 text-3xl font-semibold">${BILLING_PLAN.priceUsd}</h3>
 					<p class="bc-muted text-xs">per month</p>
 				</div>
