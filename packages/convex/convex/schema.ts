@@ -21,6 +21,7 @@ export default defineSchema({
     userId: v.string(),
     title: v.optional(v.string()),
     sandboxId: v.optional(v.string()),
+    selectedModelId: v.optional(v.string()),
     isMcp: v.optional(v.boolean()),
     status: v.optional(v.union(v.literal("idle"), v.literal("running"), v.literal("error"))),
     activity: v.optional(v.string()),
@@ -32,6 +33,12 @@ export default defineSchema({
   })
     .index("by_thread_id", ["threadId"])
     .index("by_user_id", ["userId"]),
+  agentUserPreferences: defineTable({
+    userId: v.string(),
+    defaultModelId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user_id", ["userId"]),
   agentThreadMessages: defineTable({
     threadId: v.string(),
     threadRef: v.id("agentThreads"),

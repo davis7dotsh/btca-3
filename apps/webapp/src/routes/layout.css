@@ -1012,6 +1012,11 @@
     align-items: stretch;
   }
 
+  .input-wrapper-running .chat-input {
+    border-color: color-mix(in oklab, hsl(var(--bc-warning)) 72%, hsl(var(--bc-border)));
+    box-shadow: 0 0 0 1px hsl(var(--bc-warning) / 0.2);
+  }
+
   .chat-input {
     width: 100%;
     min-height: calc(3lh + 20px);

@@ -171,6 +171,8 @@
 	const convex = useConvexClient();
 	const createId = () => crypto.randomUUID();
 	const createThreadId = () => `chat-${crypto.randomUUID()}`;
+	const isAgentModelId = (value: string | null | undefined): value is AgentModelId =>
+		value !== null && value !== undefined && agentModelOptions.some((option) => option.id === value);
 
 	const getAssistantText = (message: AssistantMessage) =>
 		message.parts.flatMap((part) => (part.type === 'text' ? [part.content] : [])).join('');
@@ -877,7 +879,7 @@
 
 	let messages = $state<ChatMessage[]>([]);
 	let draft = $state('');
-	let selectedModelId = $state<AgentModelId>(defaultAgentModelId);
+	let selectedModelId = $state<AgentModelId | null>(null);
 	let threadId = $state<string | null>(page.params.id ?? null);
 	let errorMessage = $state<string | null>(null);
 	let isStreaming = $state(false);
@@ -896,10 +898,17 @@
 	let threadPersistedMessageCountCache: Record<string, number> = {};
 	let currentRequest: AbortController | null = null;
 	let hasLoggedResourceLoadStart = false;
+	let pendingDefaultModelId = $state<AgentModelId | null>(null);
+	let pendingThreadModelIds = $state<Record<string, AgentModelId>>({});
 
 	const threadQuery = useQuery(
 		api.authed.agentThreads.get,
 		() => (authContext.currentUser && threadId ? { threadId } : 'skip'),
+		() => ({ keepPreviousData: true })
+	);
+	const defaultModelQuery = useQuery(
+		api.authed.agentThreads.getDefaultModel,
+		() => (authContext.currentUser ? {} : 'skip'),
 		() => ({ keepPreviousData: true })
 	);
 	const resourcesQuery = useQuery(
@@ -909,9 +918,47 @@
 	);
 	const resourceItems = $derived(resourcesQuery.data ?? []);
 	const routeThreadId = $derived(page.params.id ?? null);
-	const selectedModel = $derived(getAgentModelOption(selectedModelId));
+	const isModelSelectionReady = $derived.by(() => {
+		if (!authContext.currentUser) {
+			return true;
+		}
+
+		if (threadId) {
+			return defaultModelQuery.data !== undefined && threadQuery.data !== undefined;
+		}
+
+		return defaultModelQuery.data !== undefined;
+	});
+	const persistedDefaultModelId = $derived(
+		defaultModelQuery.data === undefined
+			? null
+			: isAgentModelId(defaultModelQuery.data.defaultModelId)
+				? defaultModelQuery.data.defaultModelId
+				: defaultAgentModelId
+	);
+	const effectiveDefaultModelId = $derived(pendingDefaultModelId ?? persistedDefaultModelId);
+	const persistedThreadModelId = $derived.by(() => {
+		const currentThread = threadQuery.data?.thread;
+
+		if (!threadId || !currentThread || currentThread.threadId !== threadId) {
+			return null;
+		}
+
+		return isAgentModelId(currentThread.selectedModelId) ? currentThread.selectedModelId : null;
+	});
+	const effectiveThreadModelId = $derived(
+		threadId ? pendingThreadModelIds[threadId] ?? persistedThreadModelId : null
+	);
+	const resolvedSelectedModelId = $derived(effectiveThreadModelId ?? effectiveDefaultModelId);
+	const selectedModel = $derived(
+		getAgentModelOption(selectedModelId ?? resolvedSelectedModelId ?? defaultAgentModelId)
+	);
 	const chatRouteBase = $derived(resolve(routeBase));
 	const resolvedAgentApiPath = $derived(resolve(agentApiPath));
+	const isCurrentThreadRunning = $derived(
+		isStreaming ||
+			(threadQuery.data?.thread.threadId === threadId && threadQuery.data?.thread.status === 'running')
+	);
 	const assistantMessages = $derived(
 		messages.filter((message): message is AssistantMessage => message.role === 'assistant')
 	);
@@ -990,6 +1037,18 @@
 	});
 
 	$effect(() => {
+		if (resolvedSelectedModelId === null) {
+			return;
+		}
+
+		if (selectedModelId === resolvedSelectedModelId) {
+			return;
+		}
+
+		selectedModelId = resolvedSelectedModelId;
+	});
+
+	$effect(() => {
 		if (!threadId || messages.length === 0) {
 			return;
 		}
@@ -1010,6 +1069,30 @@
 
 		messages = hydratedThreadMessages;
 		threadMessageCache[threadId] = cloneChatMessages(hydratedThreadMessages);
+	});
+
+	$effect(() => {
+		if (pendingDefaultModelId === null || pendingDefaultModelId !== persistedDefaultModelId) {
+			return;
+		}
+
+		pendingDefaultModelId = null;
+	});
+
+	$effect(() => {
+		if (!threadId) {
+			return;
+		}
+
+		const pendingThreadModelId = pendingThreadModelIds[threadId];
+
+		if (!pendingThreadModelId || pendingThreadModelId !== persistedThreadModelId) {
+			return;
+		}
+
+		pendingThreadModelIds = Object.fromEntries(
+			Object.entries(pendingThreadModelIds).filter(([candidateThreadId]) => candidateThreadId !== threadId)
+		) as Record<string, AgentModelId>;
 	});
 
 	$effect(() => {
@@ -1178,7 +1261,8 @@
 
 		const nextThreadId = createThreadId();
 		const createdThread = await convex.mutation(api.authed.agentThreads.create, {
-			threadId: nextThreadId
+			threadId: nextThreadId,
+			selectedModelId: selectedModelId ?? resolvedSelectedModelId ?? defaultAgentModelId
 		});
 
 		threadId = createdThread.threadId;
@@ -1788,8 +1872,9 @@
 	async function submitPrompt(promptOverride = draft, options?: { clearDraft?: boolean }) {
 		const prompt = promptOverride.trim();
 		const clearDraft = options?.clearDraft ?? true;
+		const currentModelId = selectedModelId ?? resolvedSelectedModelId;
 
-		if (!prompt || isStreaming) {
+		if (!prompt || isStreaming || !currentModelId) {
 			return;
 		}
 
@@ -1854,7 +1939,7 @@
 			const response = await fetch(resolvedAgentApiPath, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ threadId: activeThreadId, prompt, modelId: selectedModelId }),
+				body: JSON.stringify({ threadId: activeThreadId, prompt, modelId: currentModelId }),
 				signal: controller.signal
 			});
 
@@ -2053,9 +2138,40 @@
 		void submitPrompt();
 	}
 
-	function selectModel(id: AgentModelId) {
+	async function selectModel(id: AgentModelId) {
+		const previousSelectedModelId = selectedModelId;
+		const previousPendingDefaultModelId = pendingDefaultModelId;
+		const previousPendingThreadModelIds = pendingThreadModelIds;
+
 		selectedModelId = id;
 		modelPickerOpen = false;
+
+		try {
+			if (threadId) {
+				pendingThreadModelIds = {
+					...pendingThreadModelIds,
+					[threadId]: id
+				};
+				pendingDefaultModelId = id;
+				await convex.mutation(api.authed.agentThreads.setThreadModelSelection, {
+					threadId,
+					modelId: id
+				});
+				return;
+			}
+
+			pendingDefaultModelId = id;
+			await convex.mutation(api.authed.agentThreads.setDefaultModel, {
+				modelId: id
+			});
+		} catch (error) {
+			selectedModelId = previousSelectedModelId;
+			pendingDefaultModelId = previousPendingDefaultModelId;
+			pendingThreadModelIds = previousPendingThreadModelIds;
+			const message = getHumanErrorMessage(error, 'Failed to update the selected model.');
+			errorMessage = message;
+			appendSystemMessage(message);
+		}
 	}
 
 	function handleModelPickerKeydown(event: KeyboardEvent) {
@@ -2500,7 +2616,7 @@
 	</div>
 
 	<div class="chat-input-container">
-		<div class="input-wrapper">
+		<div class={`input-wrapper ${isCurrentThreadRunning ? 'input-wrapper-running' : ''}`}>
 			{#if mentionState !== null}
 				<div class="absolute inset-x-0 bottom-full z-40 mb-3">
 					<div
@@ -2558,7 +2674,7 @@
 				class="chat-input bc-scrollbar"
 				rows="1"
 				placeholder="Ask the agent to inspect code, run a command, or read a file..."
-				disabled={isStreaming || retryingMessageId !== null}
+				disabled={isStreaming || retryingMessageId !== null || !isModelSelectionReady}
 				oninput={handleComposerInput}
 				onclick={handleComposerClick}
 				onkeydown={handleComposerKeydown}
@@ -2576,7 +2692,7 @@
 					type="button"
 					class="send-btn"
 					onclick={() => void submitPrompt()}
-					disabled={!draft.trim() || retryingMessageId !== null}
+					disabled={!draft.trim() || retryingMessageId !== null || !isModelSelectionReady}
 					aria-label="Send message"
 				>
 					<svg
@@ -2602,10 +2718,10 @@
 				<button
 					type="button"
 					class="model-picker-trigger"
-					disabled={isStreaming || retryingMessageId !== null}
+					disabled={isStreaming || retryingMessageId !== null || !isModelSelectionReady}
 					onclick={() => (modelPickerOpen = !modelPickerOpen)}
 				>
-					<span>{selectedModel.label}</span>
+					<span>{isModelSelectionReady ? selectedModel.label : 'Loading model...'}</span>
 					<svg
 						class="model-picker-chevron"
 						class:model-picker-chevron-open={modelPickerOpen}
@@ -2632,7 +2748,7 @@
 								type="button"
 								class="model-picker-option"
 								class:model-picker-option-active={option.id === selectedModelId}
-								onclick={() => selectModel(option.id)}
+								onclick={() => void selectModel(option.id)}
 							>
 								<span class="model-picker-option-label">{option.label}</span>
 								<span class="model-picker-option-desc">{option.description}</span>

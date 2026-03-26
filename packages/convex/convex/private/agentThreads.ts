@@ -47,6 +47,7 @@ export const getThreadContext = privateQuery({
         userId: thread.userId,
         title: thread.title ?? null,
         sandboxId: thread.sandboxId ?? null,
+        selectedModelId: thread.selectedModelId ?? null,
         isMcp: thread.isMcp ?? false,
         status: thread.status ?? "idle",
         activity: thread.activity ?? null,
@@ -71,6 +72,7 @@ export const appendThreadMessages = privateMutation({
     threadId: v.string(),
     userId: v.string(),
     sandboxId: v.string(),
+    selectedModelId: v.string(),
     isMcp: v.optional(v.boolean()),
     startedAt: v.number(),
     completedAt: v.number(),
@@ -97,6 +99,7 @@ export const appendThreadMessages = privateMutation({
         userId: args.userId,
         title: undefined,
         sandboxId: args.sandboxId,
+        selectedModelId: args.selectedModelId,
         isMcp: args.isMcp ?? false,
         status: "idle",
         activity: args.promptPreview,
@@ -126,6 +129,7 @@ export const appendThreadMessages = privateMutation({
     await ctx.db.patch(threadRef, {
       title: thread?.title ?? args.promptPreview,
       sandboxId: args.sandboxId,
+      selectedModelId: args.selectedModelId,
       isMcp: thread?.isMcp ?? args.isMcp ?? false,
       status: "idle",
       activity: args.promptPreview,
@@ -184,6 +188,7 @@ export const setThreadState = privateMutation({
     status: threadStatusValidator,
     activity: v.optional(v.string()),
     sandboxId: v.optional(v.string()),
+    selectedModelId: v.optional(v.string()),
     isMcp: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -204,6 +209,7 @@ export const setThreadState = privateMutation({
         userId: args.userId,
         title: undefined,
         sandboxId: args.sandboxId,
+        selectedModelId: args.selectedModelId,
         isMcp: args.isMcp ?? false,
         status: args.status,
         activity: args.activity,
@@ -222,6 +228,7 @@ export const setThreadState = privateMutation({
 
     await ctx.db.patch(thread._id, {
       sandboxId: args.sandboxId ?? thread.sandboxId,
+      selectedModelId: args.selectedModelId ?? thread.selectedModelId,
       isMcp: thread.isMcp ?? args.isMcp ?? false,
       status: args.status,
       activity: args.activity,

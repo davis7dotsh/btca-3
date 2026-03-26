@@ -192,7 +192,7 @@
 </script>
 
 <svelte:head>
-	<title>pi land | MCP</title>
+	<title>btca web | MCP</title>
 </svelte:head>
 
 <div class="flex min-h-0 flex-1 bg-[hsl(var(--bc-bg))]">

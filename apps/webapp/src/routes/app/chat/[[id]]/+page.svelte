@@ -3,7 +3,7 @@
 </script>
 
 <svelte:head>
-	<title>pi land | Chat</title>
+	<title>btca web | Chat</title>
 </svelte:head>
 
 <AgentChat />

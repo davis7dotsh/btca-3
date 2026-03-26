@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Menu } from '@lucide/svelte';
+	import { Bot, Menu } from '@lucide/svelte';
 	import ConvexWrapper from '$lib/wrappers/ConvexWrapper.svelte';
 	import AppSidebar from '$lib/components/AppSidebar.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
@@ -33,7 +33,7 @@
 <svelte:window onkeydown={handleGlobalKeydown} />
 
 <svelte:head>
-	<title>pi land | App</title>
+	<title>btca web | App</title>
 </svelte:head>
 
 {#if authContext.isLoaded}
@@ -50,8 +50,10 @@
 
 				<div class="bc-card bc-reveal relative z-10 w-full max-w-md p-8">
 					<div class="mb-8 space-y-4">
-						<div class="bc-logoMark">PL</div>
-						<h1 class="bc-title text-2xl">Sign in to pi land</h1>
+						<div class="bc-logoMark">
+							<Bot size={18} strokeWidth={2.25} />
+						</div>
+						<h1 class="bc-title text-2xl">Sign in to btca web</h1>
 					</div>
 
 					<div class="space-y-4">

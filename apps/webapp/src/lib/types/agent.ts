@@ -87,6 +87,7 @@ export interface StoredAgentThread {
   readonly userId: string;
   readonly title: string | null;
   readonly sandboxId: string | null;
+  readonly selectedModelId: string | null;
   readonly isMcp: boolean;
   readonly status: AgentThreadStatus;
   readonly activity: string | null;
@@ -113,6 +114,7 @@ export interface AgentThreadListItem {
   readonly threadId: string;
   readonly title: string | null;
   readonly sandboxId: string | null;
+  readonly selectedModelId: string | null;
   readonly isMcp: boolean;
   readonly status: AgentThreadStatus;
   readonly activity: string | null;

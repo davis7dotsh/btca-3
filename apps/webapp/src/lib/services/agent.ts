@@ -734,6 +734,7 @@ const createPromptThread =
             status: "running",
             activity: promptPreview,
             sandboxId: ensuredSandbox.id,
+            selectedModelId: selectedModel.id,
             isMcp: input.isMcp,
           },
         });
@@ -891,6 +892,7 @@ const createPromptThread =
                         threadId: input.threadId,
                         userId: input.userId,
                         sandboxId: ensuredSandbox.id,
+                        selectedModelId: selectedModel.id,
                         isMcp: input.isMcp,
                         startedAt: runStartedAt,
                         completedAt: Date.now(),

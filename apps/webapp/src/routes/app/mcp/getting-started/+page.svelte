@@ -130,7 +130,7 @@
 </script>
 
 <svelte:head>
-	<title>pi land | MCP Getting Started</title>
+	<title>btca web | MCP Getting Started</title>
 </svelte:head>
 
 <div class="bc-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto bg-[hsl(var(--bc-bg))]">

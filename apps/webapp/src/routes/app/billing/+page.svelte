@@ -157,7 +157,7 @@
 </script>
 
 <svelte:head>
-  <title>pi land | Billing</title>
+  <title>btca web | Billing</title>
 </svelte:head>
 
 <div class="bc-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto bg-[hsl(var(--bc-bg))]">

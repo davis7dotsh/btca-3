@@ -7,6 +7,7 @@ const toThreadListItem = (thread: {
   threadId: string;
   title?: string;
   sandboxId?: string;
+  selectedModelId?: string;
   isMcp?: boolean;
   status?: "idle" | "running" | "error";
   activity?: string;
@@ -19,6 +20,7 @@ const toThreadListItem = (thread: {
   threadId: thread.threadId,
   title: thread.title ?? null,
   sandboxId: thread.sandboxId ?? null,
+  selectedModelId: thread.selectedModelId ?? null,
   isMcp: thread.isMcp ?? false,
   status: thread.status ?? "idle",
   activity: thread.activity ?? null,
@@ -90,6 +92,106 @@ export const get = authedQuery({
         timestamp: message.messageTimestamp ?? null,
         rawJson: message.rawJson,
       })),
+    };
+  },
+});
+
+export const getDefaultModel = authedQuery({
+  args: {},
+  handler: async (ctx) => {
+    const userId = getUserId(ctx.identity);
+    const preferences = await ctx.db
+      .query("agentUserPreferences")
+      .withIndex("by_user_id", (query) => query.eq("userId", userId))
+      .unique();
+
+    return {
+      defaultModelId: preferences?.defaultModelId ?? null,
+    };
+  },
+});
+
+export const setDefaultModel = authedMutation({
+  args: {
+    modelId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = getUserId(ctx.identity);
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("agentUserPreferences")
+      .withIndex("by_user_id", (query) => query.eq("userId", userId))
+      .unique();
+
+    if (existing === null) {
+      await ctx.db.insert("agentUserPreferences", {
+        userId,
+        defaultModelId: args.modelId,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.patch(existing._id, {
+        defaultModelId: args.modelId,
+        updatedAt: now,
+      });
+    }
+
+    return {
+      defaultModelId: args.modelId,
+    };
+  },
+});
+
+export const setThreadModelSelection = authedMutation({
+  args: {
+    threadId: v.string(),
+    modelId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = getUserId(ctx.identity);
+    const now = Date.now();
+    const thread = await ctx.db
+      .query("agentThreads")
+      .withIndex("by_thread_id", (query) => query.eq("threadId", args.threadId))
+      .unique();
+
+    if (thread === null) {
+      throw new Error("Thread not found.");
+    }
+
+    if (thread.userId !== userId) {
+      throw new Error("Unauthorized thread access");
+    }
+
+    await ctx.db.patch(thread._id, {
+      selectedModelId: args.modelId,
+      updatedAt: now,
+    });
+
+    const existingPreferences = await ctx.db
+      .query("agentUserPreferences")
+      .withIndex("by_user_id", (query) => query.eq("userId", userId))
+      .unique();
+
+    if (existingPreferences === null) {
+      await ctx.db.insert("agentUserPreferences", {
+        userId,
+        defaultModelId: args.modelId,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.patch(existingPreferences._id, {
+        defaultModelId: args.modelId,
+        updatedAt: now,
+      });
+    }
+
+    return {
+      threadId: args.threadId,
+      selectedModelId: args.modelId,
+      defaultModelId: args.modelId,
     };
   },
 });
@@ -198,6 +300,7 @@ export const rewindThread = authedMutation({
 export const create = authedMutation({
   args: {
     threadId: v.string(),
+    selectedModelId: v.optional(v.string()),
     isMcp: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -224,6 +327,7 @@ export const create = authedMutation({
       userId,
       title: undefined,
       sandboxId: undefined,
+      selectedModelId: args.selectedModelId,
       isMcp: args.isMcp ?? false,
       status: "idle",
       activity: undefined,

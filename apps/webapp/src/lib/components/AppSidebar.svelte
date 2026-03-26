@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		Bot,
 		BookOpen,
 		ChevronDown,
 		Command,
@@ -11,7 +12,6 @@
 		Plus,
 		Server,
 		Settings,
-		Sparkles,
 		Sun,
 		Trash2
 	} from '@lucide/svelte';
@@ -168,8 +168,8 @@
 	<div class="bc-sidebar-section">
 		<div class="flex items-start justify-between gap-3">
 			<a href={appHomePath} class="bc-chip w-full justify-start" onclick={onClose}>
-				<div class="bc-logoMark h-11 w-11 text-[hsl(var(--bc-accent))]">
-					<Sparkles size={16} />
+				<div class="bc-logoMark h-11 w-11">
+					<Bot size={18} strokeWidth={2.25} />
 				</div>
 				<div class="min-w-0">
 					<div class="bc-title text-sm">btca web</div>
