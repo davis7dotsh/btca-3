@@ -27,13 +27,13 @@
 			id: 'codex-config',
 			title: 'OpenAI Codex',
 			path: '~/.codex/config.toml',
-			code: `[mcp_servers.piLand]\nurl = "${mcpUrl}"`
+			code: `[mcp_servers.btcaWeb]\nurl = "${mcpUrl}"`
 		},
 		{
 			id: 'codex-cli',
 			title: 'Codex CLI',
 			path: 'Terminal',
-			code: `codex mcp add piLand --url ${mcpUrl}`,
+			code: `codex mcp add btcaWeb --url ${mcpUrl}`,
 			note: 'Verify with `codex mcp list`.'
 		},
 		{
@@ -43,7 +43,7 @@
 			code: JSON.stringify(
 				{
 					mcpServers: {
-						piLand: {
+						btcaWeb: {
 							type: 'http',
 							url: mcpUrl
 						}
@@ -52,7 +52,7 @@
 				null,
 				2
 			),
-			note: `CLI alternative: claude mcp add --transport http piLand ${mcpUrl}`
+			note: `CLI alternative: claude mcp add --transport http btcaWeb ${mcpUrl}`
 		},
 		{
 			id: 'opencode',
@@ -62,7 +62,7 @@
 				{
 					$schema: 'https://opencode.ai/config.json',
 					mcp: {
-						piLand: {
+						btcaWeb: {
 							type: 'remote',
 							url: mcpUrl,
 							enabled: true
@@ -72,7 +72,7 @@
 				null,
 				2
 			),
-			note: 'If auth does not start automatically, run `opencode mcp auth piLand`.'
+			note: 'If auth does not start automatically, run `opencode mcp auth btcaWeb`.'
 		},
 		{
 			id: 'cursor',
@@ -81,7 +81,7 @@
 			code: JSON.stringify(
 				{
 					mcpServers: {
-						piLand: {
+						btcaWeb: {
 							url: mcpUrl
 						}
 					}

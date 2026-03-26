@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "btcaWeb": {
+      "type": "remote",
+      "url": "http://localhost:5173/api/mcp",
+      "enabled": true
+    }
+  }
+}

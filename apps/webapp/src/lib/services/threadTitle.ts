@@ -7,27 +7,35 @@ import { Cause, Effect, Exit } from "effect";
 import { z } from "zod";
 import type { ConvexError } from "./convex";
 
-const THREAD_TITLE_MODEL_ID = "galapagos-nano-alpha";
+const THREAD_TITLE_MODEL_ID = "gpt-5.4-nano";
 
 const threadTitleOpenAI = createOpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
 const threadTitleSchema = z.object({
-  title: z.string().min(1).describe("A concise thread title between four and six words long."),
+  title: z
+    .string()
+    .min(1)
+    .describe("A concise thread title between four and six words long."),
 });
 
-export const normalizeWhitespace = (value: string) => value.replace(/\s+/g, " ").trim();
+export const normalizeWhitespace = (value: string) =>
+  value.replace(/\s+/g, " ").trim();
 
-export const getPromptPreview = (prompt: string) => normalizeWhitespace(prompt).slice(0, 120);
+export const getPromptPreview = (prompt: string) =>
+  normalizeWhitespace(prompt).slice(0, 120);
 
 const sentenceCase = (value: string) =>
   value.length === 0 ? value : `${value[0].toUpperCase()}${value.slice(1)}`;
 
 const stripTitleFormatting = (value: string) =>
-  normalizeWhitespace(value.replace(/^["'`]+|["'`]+$/g, "").replace(/[.!?,:;]+$/g, ""));
+  normalizeWhitespace(
+    value.replace(/^["'`]+|["'`]+$/g, "").replace(/[.!?,:;]+$/g, ""),
+  );
 
-const splitIntoWords = (value: string) => stripTitleFormatting(value).split(/\s+/u).filter(Boolean);
+const splitIntoWords = (value: string) =>
+  stripTitleFormatting(value).split(/\s+/u).filter(Boolean);
 
 const fallbackThreadTitle = (prompt: string) => {
   const words = normalizeWhitespace(prompt)
@@ -62,18 +70,27 @@ const extractMessageTextContent = (content: Message["content"]) => {
   }
 
   return normalizeWhitespace(
-    content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n\n"),
+    content
+      .flatMap((part) => (part.type === "text" ? [part.text] : []))
+      .join("\n\n"),
   );
 };
 
-export const getThreadTitleSourcePrompt = (persistedMessages: Message[], prompt: string) => {
-  const originalUserMessage = persistedMessages.find((message) => message.role === "user");
+export const getThreadTitleSourcePrompt = (
+  persistedMessages: Message[],
+  prompt: string,
+) => {
+  const originalUserMessage = persistedMessages.find(
+    (message) => message.role === "user",
+  );
   const originalPrompt =
     originalUserMessage === undefined
       ? null
       : extractMessageTextContent(originalUserMessage.content);
 
-  return originalPrompt && originalPrompt.length > 0 ? originalPrompt : normalizeWhitespace(prompt);
+  return originalPrompt && originalPrompt.length > 0
+    ? originalPrompt
+    : normalizeWhitespace(prompt);
 };
 
 export const getThreadTitleSourcePromptFromStored = (
@@ -95,7 +112,10 @@ export const getThreadTitleSourcePromptFromStored = (
         continue;
       }
 
-      if (typeof parsed.content === "string" && parsed.content.trim().length > 0) {
+      if (
+        typeof parsed.content === "string" &&
+        parsed.content.trim().length > 0
+      ) {
         return normalizeWhitespace(parsed.content);
       }
 
@@ -144,7 +164,8 @@ export const generateThreadTitle = (
           output: Output.object({
             schema: threadTitleSchema,
             name: "thread_title",
-            description: "A thread title that is between four and six words long.",
+            description:
+              "A thread title that is between four and six words long.",
           }),
           system:
             "You write concise thread titles. Return a title between four and six words long, with no surrounding quotes.",
@@ -190,7 +211,10 @@ export const persistGeneratedThreadTitle = ({
       }
 
       const error = Cause.findErrorOption(exit.cause);
-      if (error._tag === "Some" && getErrorMessage(error.value).includes("Thread not found.")) {
+      if (
+        error._tag === "Some" &&
+        getErrorMessage(error.value).includes("Thread not found.")
+      ) {
         yield* Effect.sleep(500);
         continue;
       }

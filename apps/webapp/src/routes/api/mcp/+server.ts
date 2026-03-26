@@ -1,6 +1,8 @@
-import { env as privateEnv } from "$env/dynamic/private";
+import { api } from "@btca/convex/api";
 import { runtime } from "$lib/runtime";
+import { getAuthkitDomain, getProtectedResourceMetadataUrl } from "$lib/server/mcpAuthMetadata";
 import { AgentService } from "$lib/services/agent";
+import { ConvexPrivateService } from "$lib/services/convex";
 import { ZodJsonSchemaAdapter } from "@tmcp/adapter-zod";
 import { HttpTransport } from "@tmcp/transport-http";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
@@ -30,22 +32,39 @@ const ASK_TOOL_INPUT = z.object({
   modelId: z.string().min(1).optional(),
 });
 
-const getRequiredValue = (name: string) => {
-  const value = privateEnv[name];
+const LIST_RESOURCES_TOOL_INPUT = z.object({
+  includeItems: z.boolean().optional(),
+});
 
-  if (!value) {
-    throw new Error(`${name} is required`);
-  }
+const RESOURCE_ITEM_SCHEMA = z.object({
+  id: z.string(),
+  kind: z.enum(["git_repo", "npm_package", "website"]),
+  name: z.string(),
+  description: z.string(),
+  url: z.string(),
+  branch: z.string().nullable(),
+  packageName: z.string().nullable(),
+  repoHost: z.string().nullable(),
+  repoOwner: z.string().nullable(),
+  repoName: z.string().nullable(),
+  websiteHost: z.string().nullable(),
+  sortOrder: z.number(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
 
-  return value;
-};
+const RESOURCE_SUMMARY_SCHEMA = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  notes: z.string().nullable(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  itemCount: z.number(),
+  items: z.array(RESOURCE_ITEM_SCHEMA).optional(),
+});
 
-const getRequiredUrl = (name: string) => new URL(getRequiredValue(name));
-
-const getAuthkitDomain = () => getRequiredUrl("WORKOS_AUTHKIT_DOMAIN");
-
-const getPublicOrigin = (request: Request) =>
-  new URL(privateEnv.MCP_PUBLIC_URL ?? request.url).origin;
+const RESOURCE_CATALOG_URI = "btca://resources/catalog.json";
 
 const corsHeaders = () => ({
   "Access-Control-Allow-Origin": "*",
@@ -56,7 +75,7 @@ const readBearerToken = (authorizationHeader: string | null) =>
   authorizationHeader?.match(/^Bearer\s+(.+)$/i)?.[1];
 
 const unauthorized = (request: Request) => {
-  const metadataUrl = new URL("/.well-known/oauth-protected-resource", getPublicOrigin(request));
+  const metadataUrl = getProtectedResourceMetadataUrl(request);
 
   return Response.json(
     {
@@ -68,7 +87,7 @@ const unauthorized = (request: Request) => {
         "WWW-Authenticate": [
           'Bearer error="unauthorized"',
           'error_description="Authorization needed"',
-          `resource_metadata="${metadataUrl.href}"`,
+          `resource_metadata="${metadataUrl}"`,
         ].join(", "),
         "Cache-Control": "no-store",
         ...corsHeaders(),
@@ -124,6 +143,28 @@ const collectAssistantAnswer = async (events: AsyncIterable<AgentEvent>) => {
   return trimmedAnswer.length > 0 ? trimmedAnswer : "Agent completed without a text response.";
 };
 
+const formatResourcesText = (
+  resources: ReadonlyArray<{
+    name: string;
+    slug: string;
+    notes: string | null;
+    itemCount: number;
+  }>,
+) => {
+  if (resources.length === 0) {
+    return "No saved resources yet.";
+  }
+
+  return resources
+    .map(
+      (resource) =>
+        `@${resource.slug} - ${resource.name} (${resource.itemCount} item${resource.itemCount === 1 ? "" : "s"})${
+          resource.notes ? `\n${resource.notes}` : ""
+        }`,
+    )
+    .join("\n\n");
+};
+
 const askAgent = (input: { userId: string; prompt: string; threadId?: string; modelId?: string }) =>
   runtime.runPromise(
     Effect.gen(function* () {
@@ -147,9 +188,28 @@ const askAgent = (input: { userId: string; prompt: string; threadId?: string; mo
       return {
         answer,
         threadId,
-        sandboxId,
+        sandboxId: sandboxId ?? null,
         modelId: model.id,
         modelLabel: model.label,
+      };
+    }),
+  );
+
+const listResources = (input: { userId: string; includeItems?: boolean }) =>
+  runtime.runPromise(
+    Effect.gen(function* () {
+      const convex = yield* ConvexPrivateService;
+      const resources = yield* convex.query({
+        func: api.private.resources.listForMcp,
+        args: {
+          userId: input.userId,
+          includeItems: input.includeItems ?? false,
+        },
+      });
+
+      return {
+        resources,
+        count: resources.length,
       };
     }),
   );
@@ -164,6 +224,7 @@ const server = new McpServer(
     adapter: new ZodJsonSchemaAdapter(),
     capabilities: {
       tools: { listChanged: true },
+      resources: { listChanged: true },
     },
   },
 ).withContext<McpAuthContext>();
@@ -193,7 +254,7 @@ server.tool(
     outputSchema: z.object({
       answer: z.string(),
       threadId: z.string(),
-      sandboxId: z.string(),
+      sandboxId: z.string().nullable(),
       modelId: z.string(),
       modelLabel: z.string(),
     }),
@@ -217,6 +278,81 @@ server.tool(
     } catch (error) {
       return tool.error(error instanceof Error ? error.message : "Failed to run the MCP ask tool.");
     }
+  },
+);
+
+server.tool(
+  {
+    name: "list_resources",
+    description: "List the authenticated user's saved btca resources.",
+    schema: LIST_RESOURCES_TOOL_INPUT,
+    outputSchema: z.object({
+      count: z.number(),
+      resources: z.array(RESOURCE_SUMMARY_SCHEMA),
+    }),
+  },
+  async ({ includeItems }) => {
+    const auth = server.ctx.custom;
+
+    if (!auth) {
+      return tool.error("Authentication context missing.");
+    }
+
+    try {
+      const response = await listResources({
+        userId: auth.userId,
+        includeItems,
+      });
+
+      return tool.mix([tool.text(formatResourcesText(response.resources))], response);
+    } catch (error) {
+      return tool.error(error instanceof Error ? error.message : "Failed to list btca resources.");
+    }
+  },
+);
+
+server.resource(
+  {
+    uri: RESOURCE_CATALOG_URI,
+    name: "resource_catalog",
+    title: "btca Resource Catalog",
+    description: "A JSON snapshot of the authenticated user's saved btca resources.",
+  },
+  async (uri) => {
+    const auth = server.ctx.custom;
+
+    if (!auth) {
+      return {
+        contents: [
+          {
+            uri,
+            text: JSON.stringify(
+              {
+                error: "Authentication context missing.",
+              },
+              null,
+              2,
+            ),
+            mimeType: "application/json",
+          },
+        ],
+      };
+    }
+
+    const response = await listResources({
+      userId: auth.userId,
+      includeItems: true,
+    });
+
+    return {
+      contents: [
+        {
+          uri,
+          text: JSON.stringify(response, null, 2),
+          mimeType: "application/json",
+        },
+      ],
+    };
   },
 );
 
