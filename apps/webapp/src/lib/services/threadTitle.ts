@@ -1,48 +1,36 @@
-import { OPENAI_API_KEY } from "$env/static/private";
+import { OPENCODE_API_KEY } from "$env/static/private";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { Message } from "@mariozechner/pi-ai";
-import { generateText, Output } from "ai";
+import { generateText } from "ai";
 import type { StoredAgentThreadMessage } from "$lib/types/agent";
 import { Cause, Effect, Exit } from "effect";
-import { z } from "zod";
 import type { ConvexError } from "./convex";
 
 const THREAD_TITLE_MODEL_ID = "gpt-5.4-nano";
 
 const threadTitleOpenAI = createOpenAI({
-  apiKey: OPENAI_API_KEY,
+  apiKey: OPENCODE_API_KEY,
+  baseURL: "https://opencode.ai/zen/v1",
 });
 
-const threadTitleSchema = z.object({
-  title: z
-    .string()
-    .min(1)
-    .describe("A concise thread title between four and six words long."),
-});
+export const normalizeWhitespace = (value: string) => value.replace(/\s+/g, " ").trim();
 
-export const normalizeWhitespace = (value: string) =>
-  value.replace(/\s+/g, " ").trim();
-
-export const getPromptPreview = (prompt: string) =>
-  normalizeWhitespace(prompt).slice(0, 120);
+export const getPromptPreview = (prompt: string) => normalizeWhitespace(prompt).slice(0, 120);
 
 const sentenceCase = (value: string) =>
   value.length === 0 ? value : `${value[0].toUpperCase()}${value.slice(1)}`;
 
 const stripTitleFormatting = (value: string) =>
-  normalizeWhitespace(
-    value.replace(/^["'`]+|["'`]+$/g, "").replace(/[.!?,:;]+$/g, ""),
-  );
+  normalizeWhitespace(value.replace(/^["'`]+|["'`]+$/g, "").replace(/[.!?,:;]+$/g, ""));
 
-const splitIntoWords = (value: string) =>
-  stripTitleFormatting(value).split(/\s+/u).filter(Boolean);
+const splitIntoWords = (value: string) => stripTitleFormatting(value).split(/\s+/u).filter(Boolean);
 
 const fallbackThreadTitle = (prompt: string) => {
   const words = normalizeWhitespace(prompt)
     .replace(/[^\p{L}\p{N}\s'-]+/gu, " ")
     .split(/\s+/u)
     .filter(Boolean)
-    .slice(0, 6);
+    .slice(0, 5);
 
   for (const filler of ["thread", "discussion", "details", "today"]) {
     if (words.length >= 4) {
@@ -59,7 +47,7 @@ const coerceThreadTitle = (title: string, prompt: string) => {
   const normalizedTitle = stripTitleFormatting(title);
   const wordCount = splitIntoWords(normalizedTitle).length;
 
-  return wordCount >= 4 && wordCount <= 6
+  return wordCount >= 4 && wordCount <= 5
     ? sentenceCase(normalizedTitle)
     : fallbackThreadTitle(prompt);
 };
@@ -70,27 +58,18 @@ const extractMessageTextContent = (content: Message["content"]) => {
   }
 
   return normalizeWhitespace(
-    content
-      .flatMap((part) => (part.type === "text" ? [part.text] : []))
-      .join("\n\n"),
+    content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n\n"),
   );
 };
 
-export const getThreadTitleSourcePrompt = (
-  persistedMessages: Message[],
-  prompt: string,
-) => {
-  const originalUserMessage = persistedMessages.find(
-    (message) => message.role === "user",
-  );
+export const getThreadTitleSourcePrompt = (persistedMessages: Message[], prompt: string) => {
+  const originalUserMessage = persistedMessages.find((message) => message.role === "user");
   const originalPrompt =
     originalUserMessage === undefined
       ? null
       : extractMessageTextContent(originalUserMessage.content);
 
-  return originalPrompt && originalPrompt.length > 0
-    ? originalPrompt
-    : normalizeWhitespace(prompt);
+  return originalPrompt && originalPrompt.length > 0 ? originalPrompt : normalizeWhitespace(prompt);
 };
 
 export const getThreadTitleSourcePromptFromStored = (
@@ -112,10 +91,7 @@ export const getThreadTitleSourcePromptFromStored = (
         continue;
       }
 
-      if (
-        typeof parsed.content === "string" &&
-        parsed.content.trim().length > 0
-      ) {
+      if (typeof parsed.content === "string" && parsed.content.trim().length > 0) {
         return normalizeWhitespace(parsed.content);
       }
 
@@ -158,31 +134,51 @@ export const generateThreadTitle = (
 ): Effect.Effect<string, never> =>
   Effect.gen(function* () {
     const result = yield* Effect.tryPromise({
-      try: () =>
-        generateText({
+      try: async () => {
+        const generated = await generateText({
           model: threadTitleOpenAI(THREAD_TITLE_MODEL_ID),
-          output: Output.object({
-            schema: threadTitleSchema,
-            name: "thread_title",
-            description:
-              "A thread title that is between four and six words long.",
-          }),
           system:
-            "You write concise thread titles. Return a title between four and six words long, with no surrounding quotes.",
-          prompt: `Write a title for this original user prompt:\n\n${prompt}`,
-          maxOutputTokens: 32,
-          temperature: 0,
-        }),
+            "You write concise thread titles. Return only a title that is four or five words long, with no surrounding quotes and no punctuation at the end.",
+          prompt: `Write a thread title for this original user prompt. Keep it to four or five words.\n\n${prompt}`,
+        });
+
+        const title = stripTitleFormatting(generated.text);
+
+        if (title.length === 0) {
+          console.warn("Thread title generation returned empty text", {
+            threadId,
+            model: THREAD_TITLE_MODEL_ID,
+            finishReason: generated.finishReason,
+            warnings: generated.warnings,
+            usage: generated.usage,
+            response: generated.response,
+          });
+
+          throw new Error("No output generated.");
+        }
+
+        console.log("Thread title generated", {
+          threadId,
+          model: THREAD_TITLE_MODEL_ID,
+          finishReason: generated.finishReason,
+          warnings: generated.warnings,
+          usage: generated.usage,
+          titlePreview: getPromptPreview(title),
+        });
+
+        return title;
+      },
       catch: (cause) => cause,
     });
 
-    return coerceThreadTitle(result.output.title, prompt);
+    return coerceThreadTitle(result, prompt);
   }).pipe(
     Effect.catchCause((cause) =>
       Effect.sync(() => {
         console.warn("Failed to generate thread title, using prompt fallback", {
           threadId,
           error: getErrorMessage(Cause.squash(cause)),
+          cause,
         });
 
         return fallbackThreadTitle(prompt);
@@ -211,10 +207,7 @@ export const persistGeneratedThreadTitle = ({
       }
 
       const error = Cause.findErrorOption(exit.cause);
-      if (
-        error._tag === "Some" &&
-        getErrorMessage(error.value).includes("Thread not found.")
-      ) {
+      if (error._tag === "Some" && getErrorMessage(error.value).includes("Thread not found.")) {
         yield* Effect.sleep(500);
         continue;
       }
