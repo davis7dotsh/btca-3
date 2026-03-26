@@ -29,7 +29,7 @@ type GitResource = {
   readonly type: "git";
   readonly name: string;
   readonly url: string;
-  readonly branch: string;
+  readonly branch?: string;
   readonly searchPath?: string;
   readonly searchPaths?: readonly string[];
   readonly specialNotes?: string;
@@ -96,6 +96,11 @@ type ConfigService = {
   readonly listResources: Effect.Effect<readonly ResourceDefinition[]>;
   readonly getResource: (name: string) => Effect.Effect<ResourceDefinition | undefined>;
   readonly getProviderOptions: (providerId: string) => Effect.Effect<ProviderOptions | undefined>;
+  readonly addResource: (
+    resource: ResourceDefinition,
+    scope?: Exclude<ConfigScope, "default">,
+  ) => Effect.Effect<ResourceDefinition, ConfigError>;
+  readonly removeResource: (name: string) => Effect.Effect<void, ConfigError>;
   readonly reload: Effect.Effect<void, ConfigError>;
 };
 
@@ -323,9 +328,9 @@ const validateResource = ({
           );
         }
 
-        if (!url?.trim() || !branch?.trim()) {
+        if (!url?.trim()) {
           return yield* failConfig(
-            `Invalid git resource "${name}": "url" and "branch" are required.`,
+            `Invalid git resource "${name}": "url" is required.`,
             configPath,
           );
         }
@@ -334,7 +339,7 @@ const validateResource = ({
           type: "git",
           name: name.trim(),
           url: url.trim(),
-          branch: branch.trim(),
+          branch: branch?.trim() || undefined,
           searchPath: searchPath?.trim() || undefined,
           searchPaths: value.searchPaths?.map((entry) => entry.trim()).filter(Boolean),
           specialNotes: specialNotes?.trim() || undefined,
@@ -506,6 +511,20 @@ const readConfigFile = (configPath: string) =>
     },
   });
 
+const writeConfigFile = ({ configPath, value }: { configPath: string; value: StoredConfig }) =>
+  Effect.tryPromise({
+    try: async () => {
+      await Fs.mkdir(path.dirname(configPath), { recursive: true });
+      await Fs.writeFile(configPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    },
+    catch: (cause) =>
+      new ConfigError({
+        message: `Failed to write config file "${configPath}".`,
+        path: configPath,
+        cause,
+      }),
+  });
+
 const mergeResources = (
   layers: readonly {
     readonly scope: ConfigScope;
@@ -669,6 +688,20 @@ export const ConfigLive = Layer.effect(
     const initialSnapshot = yield* loadSnapshot(startupDirectory);
     const ref = yield* Ref.make(initialSnapshot);
 
+    const reloadSnapshot = Effect.gen(function* () {
+      const nextSnapshot = yield* loadSnapshot(startupDirectory);
+      yield* Ref.set(ref, nextSnapshot);
+      return nextSnapshot;
+    });
+
+    const getMutableConfigPath = ({
+      snapshot,
+      scope,
+    }: {
+      snapshot: ConfigSnapshot;
+      scope: Exclude<ConfigScope, "default">;
+    }) => (scope === "global" ? snapshot.globalConfigPath : snapshot.localConfigPath);
+
     return {
       snapshot: Ref.get(ref),
       getModel: Ref.get(ref).pipe(
@@ -688,10 +721,85 @@ export const ConfigLive = Layer.effect(
         ),
       getProviderOptions: (providerId) =>
         Ref.get(ref).pipe(Effect.map((snapshot) => snapshot.providerOptions[providerId])),
-      reload: Effect.gen(function* () {
-        const nextSnapshot = yield* loadSnapshot(startupDirectory);
-        yield* Ref.set(ref, nextSnapshot);
-      }),
+      addResource: (resource, scope = "local") =>
+        Effect.gen(function* () {
+          const snapshot = yield* Ref.get(ref);
+          const existingScope = snapshot.scopes.resources[resource.name];
+
+          if (existingScope) {
+            return yield* failConfig(
+              `Resource "${resource.name}" already exists in the ${existingScope} config.`,
+              getMutableConfigPath({ snapshot, scope }),
+            );
+          }
+
+          const configPath = getMutableConfigPath({ snapshot, scope });
+          const currentConfig = (yield* readConfigFile(configPath)) ?? {
+            $schema: CONFIG_SCHEMA_URL,
+          };
+          const nextConfig: StoredConfig = {
+            ...currentConfig,
+            $schema: currentConfig.$schema ?? CONFIG_SCHEMA_URL,
+            resources: [...(currentConfig.resources ?? []), resource],
+          };
+
+          yield* writeConfigFile({
+            configPath,
+            value: nextConfig,
+          });
+
+          yield* reloadSnapshot;
+          return resource;
+        }),
+      removeResource: (name) =>
+        Effect.gen(function* () {
+          const snapshot = yield* Ref.get(ref);
+          const scope = snapshot.scopes.resources[name];
+
+          if (!scope) {
+            return yield* failConfig(
+              `Resource "${name}" does not exist.`,
+              snapshot.localConfigPath,
+            );
+          }
+
+          if (scope === "default") {
+            return yield* failConfig(
+              `Resource "${name}" is built in and cannot be removed.`,
+              snapshot.localConfigPath,
+            );
+          }
+
+          const configPath = getMutableConfigPath({ snapshot, scope });
+          const currentConfig = yield* readConfigFile(configPath);
+
+          if (!currentConfig) {
+            return yield* failConfig(`Config file "${configPath}" does not exist.`, configPath);
+          }
+
+          const nextResources = (currentConfig.resources ?? []).filter(
+            (resource) => resource.name !== name,
+          );
+
+          if (nextResources.length === (currentConfig.resources ?? []).length) {
+            return yield* failConfig(
+              `Resource "${name}" was not found in "${configPath}".`,
+              configPath,
+            );
+          }
+
+          yield* writeConfigFile({
+            configPath,
+            value: {
+              ...currentConfig,
+              $schema: currentConfig.$schema ?? CONFIG_SCHEMA_URL,
+              resources: nextResources,
+            },
+          });
+
+          yield* reloadSnapshot;
+        }),
+      reload: Effect.asVoid(reloadSnapshot),
     } satisfies ConfigService;
   }),
 );

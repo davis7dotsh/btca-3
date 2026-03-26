@@ -24,6 +24,8 @@
 	import type { AgentModelId, AgentModelOption } from '$lib/models';
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 	import type {
+		AgentReasoningContentPart,
+		AgentRunMetrics,
 		AgentPromptStreamEvent,
 		AgentToolCallEndEvent,
 		ExecCommandToolArgs,
@@ -52,6 +54,15 @@
 		id: string;
 		type: 'text';
 		content: string;
+	}
+
+	interface ReasoningPart {
+		id: string;
+		type: 'reasoning';
+		content: string;
+		status: 'running' | 'done';
+		thinkingSignature?: string;
+		redacted?: boolean;
 	}
 
 	interface ReadFileToolState {
@@ -89,11 +100,16 @@
 		tool: ToolCallState;
 	}
 
-	type ContentPart = TextPart | ToolPart;
+	type ContentPart = TextPart | ReasoningPart | ToolPart;
 
 	interface TextSegment {
 		type: 'text';
 		part: TextPart;
+	}
+
+	interface ReasoningSegment {
+		type: 'reasoning';
+		part: ReasoningPart;
 	}
 
 	interface ToolGroupSegment {
@@ -101,7 +117,7 @@
 		tools: ToolCallState[];
 	}
 
-	type MessageSegment = TextSegment | ToolGroupSegment;
+	type MessageSegment = TextSegment | ReasoningSegment | ToolGroupSegment;
 
 	interface UserMessage {
 		id: string;
@@ -138,6 +154,7 @@
 		completedUsage: Usage | null;
 		liveUsage: Usage | null;
 		billedCostUsd: number;
+		runMetrics: AgentRunMetrics | null;
 		completedAt: number | null;
 		toolCallDurationMs: number;
 		activeToolCallCount: number;
@@ -277,6 +294,7 @@
 		completedUsage: null,
 		liveUsage: null,
 		billedCostUsd: 0,
+		runMetrics: null,
 		completedAt: null,
 		toolCallDurationMs: 0,
 		activeToolCallCount: 0,
@@ -286,11 +304,15 @@
 		...stats,
 		model: stats.model ? { ...stats.model } : null,
 		completedUsage: cloneUsage(stats.completedUsage),
-		liveUsage: cloneUsage(stats.liveUsage)
+		liveUsage: cloneUsage(stats.liveUsage),
+		runMetrics: stats.runMetrics ? { ...stats.runMetrics } : null
 	});
 	const getAssistantUsage = (message: AssistantMessage) =>
 		addUsage(message.stats.completedUsage, message.stats.liveUsage);
-	const getAssistantBilledCostUsd = (message: AssistantMessage) => message.stats.billedCostUsd;
+	const getAssistantBilledCostUsd = (message: AssistantMessage) =>
+		message.stats.runMetrics?.priceUsd ?? message.stats.billedCostUsd;
+	const getAssistantTotalToolCalls = (message: AssistantMessage) =>
+		message.stats.runMetrics?.totalToolCalls ?? null;
 	const numberFormatter = new Intl.NumberFormat();
 	const tokenRateFormatter = new Intl.NumberFormat(undefined, {
 		maximumFractionDigits: 1,
@@ -331,6 +353,10 @@
 		return activeGenerationDurationMs;
 	};
 	const getAssistantOutputTokensPerSecond = (message: AssistantMessage) => {
+		if (message.stats.runMetrics?.outputTokensPerSecond !== null) {
+			return message.stats.runMetrics?.outputTokensPerSecond ?? null;
+		}
+
 		const usage = getAssistantUsage(message);
 		const durationMs = getAssistantDurationMs(message);
 
@@ -345,6 +371,10 @@
 		(message.stats.providerModelId ? `${message.stats.providerModelId}` : 'Unknown model');
 	const isPricingVisible = (message: AssistantMessage) => {
 		const usage = getAssistantUsage(message);
+
+		if (message.stats.runMetrics !== null) {
+			return true;
+		}
 
 		if (message.stats.billedCostUsd > 0) {
 			return true;
@@ -510,6 +540,10 @@
 				if (part.content.trim()) {
 					segments.push({ type: 'text', part });
 				}
+			} else if (part.type === 'reasoning') {
+				if (part.content.trim().length > 0 || part.status === 'running') {
+					segments.push({ type: 'reasoning', part });
+				}
 			} else {
 				const lastSegment = segments[segments.length - 1];
 
@@ -558,6 +592,8 @@
 	};
 
 	const getToolGroupKey = (tools: ToolCallState[]) => tools[0]?.id ?? 'empty';
+	const getReasoningLabel = (part: ReasoningPart) =>
+		part.status === 'running' ? 'Reasoning summary' : 'Reasoning';
 
 	const getReadFileLines = (details: SandboxReadFileResult | null) => {
 		if (!details || details.content.length === 0 || details.lineEnd < details.lineStart) {
@@ -631,7 +667,11 @@
 	};
 
 	const cloneContentPart = (part: ContentPart): ContentPart =>
-		part.type === 'text' ? { ...part } : { type: 'tool', tool: cloneToolState(part.tool) };
+		part.type === 'text'
+			? { ...part }
+			: part.type === 'reasoning'
+				? { ...part }
+				: { type: 'tool', tool: cloneToolState(part.tool) };
 
 	const cloneChatMessage = (message: ChatMessage): ChatMessage => {
 		switch (message.role) {
@@ -749,7 +789,11 @@
 					provider: parsedMessage.provider,
 					completedUsage: addUsage(assistantMessage.stats.completedUsage, parsedMessage.usage),
 					liveUsage: null,
-					billedCostUsd: addUsd(assistantMessage.stats.billedCostUsd, parsedMessage.usage.cost.total),
+					billedCostUsd: addUsd(
+						assistantMessage.stats.billedCostUsd,
+						parsedMessage.runMetrics?.priceUsd ?? parsedMessage.usage.cost.total
+					),
+					runMetrics: parsedMessage.runMetrics ?? assistantMessage.stats.runMetrics,
 					completedAt: parsedMessage.timestamp,
 					toolCallDurationMs: assistantMessage.stats.toolCallDurationMs,
 					activeToolCallCount: 0,
@@ -770,6 +814,20 @@
 							id: createId(),
 							type: 'text',
 							content: part.text
+						});
+						continue;
+					}
+
+					if (isRecord(part) && part.type === 'thinking' && typeof part.thinking === 'string') {
+						assistantMessage.parts.push({
+							id: createId(),
+							type: 'reasoning',
+							content: part.thinking,
+							status: 'done',
+							...(typeof part.thinkingSignature === 'string'
+								? { thinkingSignature: part.thinkingSignature }
+								: {}),
+							...(typeof part.redacted === 'boolean' ? { redacted: part.redacted } : {})
 						});
 						continue;
 					}
@@ -825,6 +883,7 @@
 	let isStreaming = $state(false);
 	let toolExpanded = $state<Record<string, boolean>>({});
 	let toolGroupExpanded = $state<Record<string, boolean>>({});
+	let reasoningExpanded = $state<Record<string, boolean>>({});
 	let composer = $state<HTMLTextAreaElement | null>(null);
 	let scrollContainer = $state<HTMLDivElement | null>(null);
 	let messageCopyState = $state<Record<string, CopyStatus>>({});
@@ -836,6 +895,7 @@
 	let threadMessageCache: Record<string, ChatMessage[]> = {};
 	let threadPersistedMessageCountCache: Record<string, number> = {};
 	let currentRequest: AbortController | null = null;
+	let hasLoggedResourceLoadStart = false;
 
 	const threadQuery = useQuery(
 		api.authed.agentThreads.get,
@@ -952,6 +1012,33 @@
 		threadMessageCache[threadId] = cloneChatMessages(hydratedThreadMessages);
 	});
 
+	$effect(() => {
+		if (!authContext.currentUser) {
+			hasLoggedResourceLoadStart = false;
+			return;
+		}
+
+		if (resourcesQuery.isLoading) {
+			if (!hasLoggedResourceLoadStart) {
+				hasLoggedResourceLoadStart = true;
+				console.debug('Agent chat resources starting to load', {
+					threadId,
+					timestamp: Date.now()
+				});
+			}
+			return;
+		}
+
+		if (hasLoggedResourceLoadStart && resourcesQuery.data) {
+			hasLoggedResourceLoadStart = false;
+			console.debug('Agent chat resources loaded', {
+				threadId,
+				resourceCount: resourcesQuery.data.length,
+				timestamp: Date.now()
+			});
+		}
+	});
+
 	let upScrollCursor = $state<number | null>(null);
 
 	function scrollToBottom(behavior: ScrollBehavior = 'smooth') {
@@ -1042,6 +1129,7 @@
 		upScrollCursor = null;
 		toolExpanded = {};
 		toolGroupExpanded = {};
+		reasoningExpanded = {};
 		messageCopyState = {};
 		fullThreadCopyState = 'idle';
 
@@ -1149,6 +1237,89 @@
 		});
 	}
 
+	function upsertReasoningPart(
+		messageId: string,
+		updater: (part: ReasoningPart | null) => ReasoningPart
+	) {
+		updateAssistantMessage(messageId, (message) => {
+			const parts = [...message.parts];
+			const index = [...parts]
+				.reverse()
+				.findIndex((part) => part.type === 'reasoning' && part.status === 'running');
+			const resolvedIndex = index === -1 ? -1 : parts.length - 1 - index;
+
+			if (resolvedIndex === -1) {
+				return {
+					...message,
+					parts: [...parts, updater(null)]
+				};
+			}
+
+			const currentPart = parts[resolvedIndex];
+
+			if (currentPart?.type !== 'reasoning') {
+				return message;
+			}
+
+			parts[resolvedIndex] = updater(currentPart);
+
+			return {
+				...message,
+				parts
+			};
+		});
+	}
+
+	function syncFinalReasoningParts(
+		messageId: string,
+		reasoningParts: readonly AgentReasoningContentPart[]
+	) {
+		if (reasoningParts.length === 0) {
+			return;
+		}
+
+		updateAssistantMessage(messageId, (message) => {
+			const nextParts = [...message.parts];
+			const existingReasoningIndexes = nextParts.flatMap((part, index) =>
+				part.type === 'reasoning' ? [index] : []
+			);
+
+			reasoningParts.forEach((reasoningPart, index) => {
+				const existingIndex = existingReasoningIndexes[index];
+				const existingPart =
+					existingIndex !== undefined ? nextParts[existingIndex] : undefined;
+				const nextReasoningPart: ReasoningPart = {
+					id: existingPart?.type === 'reasoning' ? existingPart.id : createId(),
+					type: 'reasoning',
+					content: reasoningPart.thinking,
+					status: 'done',
+					...(reasoningPart.thinkingSignature
+						? { thinkingSignature: reasoningPart.thinkingSignature }
+						: {}),
+					...(reasoningPart.redacted !== undefined ? { redacted: reasoningPart.redacted } : {})
+				};
+
+				if (existingIndex !== undefined) {
+					nextParts[existingIndex] = nextReasoningPart;
+					return;
+				}
+
+				const firstTextIndex = nextParts.findIndex((part) => part.type === 'text');
+
+				if (firstTextIndex === -1) {
+					nextParts.push(nextReasoningPart);
+				} else {
+					nextParts.splice(firstTextIndex, 0, nextReasoningPart);
+				}
+			});
+
+			return {
+				...message,
+				parts: nextParts
+			};
+		});
+	}
+
 	function upsertToolPart(
 		messageId: string,
 		toolId: string,
@@ -1209,6 +1380,13 @@
 		toolGroupExpanded = {
 			...toolGroupExpanded,
 			[groupKey]: !toolGroupExpanded[groupKey]
+		};
+	}
+
+	function toggleReasoning(reasoningId: string) {
+		reasoningExpanded = {
+			...reasoningExpanded,
+			[reasoningId]: !reasoningExpanded[reasoningId]
 		};
 	}
 
@@ -1288,6 +1466,22 @@
 		}
 	}
 
+	async function copyChatMessage(message: ChatMessage) {
+		const content = formatChatMessageForCopy(message).replace(/^[A-Za-z]+:\n/u, '').trim();
+
+		if (!content) {
+			setMessageCopyStatus(message.id, 'error');
+			return;
+		}
+
+		try {
+			await navigator.clipboard.writeText(content);
+			setMessageCopyStatus(message.id, 'copied');
+		} catch {
+			setMessageCopyStatus(message.id, 'error');
+		}
+	}
+
 	async function copyFullThread() {
 		if (!fullThreadCopyText.trim()) {
 			setFullThreadCopyStatus('error');
@@ -1323,6 +1517,36 @@
 
 				appendAssistantText(assistantId, streamEvent.delta);
 				return;
+			case 'reasoning_start':
+				upsertReasoningPart(assistantId, (part) => ({
+					id: part?.id ?? createId(),
+					type: 'reasoning',
+					content: part?.content ?? '',
+					status: 'running',
+					...(part?.thinkingSignature ? { thinkingSignature: part.thinkingSignature } : {}),
+					...(part?.redacted !== undefined ? { redacted: part.redacted } : {})
+				}));
+				return;
+			case 'reasoning_delta':
+				upsertReasoningPart(assistantId, (part) => ({
+					id: part?.id ?? createId(),
+					type: 'reasoning',
+					content: `${part?.content ?? ''}${streamEvent.delta}`,
+					status: 'running',
+					...(part?.thinkingSignature ? { thinkingSignature: part.thinkingSignature } : {}),
+					...(part?.redacted !== undefined ? { redacted: part.redacted } : {})
+				}));
+				return;
+			case 'reasoning_end':
+				upsertReasoningPart(assistantId, (part) => ({
+					id: part?.id ?? createId(),
+					type: 'reasoning',
+					content: part?.content ?? '',
+					status: 'done',
+					...(part?.thinkingSignature ? { thinkingSignature: part.thinkingSignature } : {}),
+					...(part?.redacted !== undefined ? { redacted: part.redacted } : {})
+				}));
+				return;
 			case 'assistant_message':
 				updateAssistantStats(assistantId, (stats) => ({
 					...stats,
@@ -1340,6 +1564,7 @@
 					liveUsage: null,
 					completedAt: streamEvent.timestamp
 				}));
+				syncFinalReasoningParts(assistantId, streamEvent.reasoning);
 
 				updateAssistantMessage(assistantId, (message) => {
 					const resolvedContent =
@@ -1357,6 +1582,13 @@
 						parts: [...message.parts, { id: createId(), type: 'text', content: resolvedContent }]
 					};
 				});
+				return;
+			case 'run_metrics':
+				updateAssistantStats(assistantId, (stats) => ({
+					...stats,
+					runMetrics: { ...streamEvent.metrics },
+					billedCostUsd: streamEvent.metrics.priceUsd
+				}));
 				return;
 			case 'tool_call_start': {
 				updateAssistantStats(assistantId, (stats) => ({
@@ -1613,6 +1845,9 @@
 			scrollContainer
 				?.querySelector(`[data-message-id="${userMessageId}"]`)
 				?.scrollIntoView({ behavior: 'instant', block: 'start' });
+		} else {
+			await tick();
+			scrollContainer?.scrollTo({ top: 0, behavior: 'instant' });
 		}
 
 		try {
@@ -1673,6 +1908,7 @@
 		errorMessage = null;
 		toolExpanded = {};
 		toolGroupExpanded = {};
+		reasoningExpanded = {};
 		messageCopyState = {};
 		fullThreadCopyState = 'idle';
 	}
@@ -1886,6 +2122,17 @@
 								<button
 									type="button"
 									class="chat-message-action"
+									onclick={() => void copyChatMessage(message)}
+								>
+									{messageCopyState[message.id] === 'copied'
+										? 'Copied'
+										: messageCopyState[message.id] === 'error'
+											? 'Copy failed'
+											: 'Copy'}
+								</button>
+								<button
+									type="button"
+									class="chat-message-action"
 									onclick={() => void retryUserMessage(message)}
 									disabled={isStreaming ||
 										retryingMessageId !== null ||
@@ -1905,13 +2152,60 @@
 								{/if}
 							</div>
 
-							{#each groupMessageParts(message.parts) as segment (segment.type === 'text' ? segment.part.id : getToolGroupKey(segment.tools))}
-								{#if segment.type === 'text'}
-									<MarkdownMessage content={segment.part.content} />
-								{:else}
-									{@const groupKey = getToolGroupKey(segment.tools)}
-									{@const groupStatus = getToolGroupStatus(segment.tools)}
-									<div class={`tool-group ${getToolGroupTypeClass(segment.tools)}`}>
+							<div class="assistant-sections">
+								{#each groupMessageParts(message.parts) as segment (segment.type === 'text' || segment.type === 'reasoning' ? segment.part.id : getToolGroupKey(segment.tools))}
+									{#if segment.type === 'text'}
+										<div class="assistant-section assistant-section-text">
+											<MarkdownMessage content={segment.part.content} />
+										</div>
+									{:else if segment.type === 'reasoning'}
+										<div class="assistant-section tool-group">
+										<button
+											type="button"
+											class="tool-group-bar"
+											onclick={() => toggleReasoning(segment.part.id)}
+										>
+											<div class="tool-group-bar-left">
+												<span
+													class={`tool-dot ${segment.part.status === 'running' ? 'tool-dot-pending' : 'tool-dot-completed'}`}
+												></span>
+												<span class="tool-group-bar-label">
+													{getReasoningLabel(segment.part)}
+												</span>
+											</div>
+											<div class="tool-group-bar-right">
+											<svg
+												class:rotate-180={reasoningExpanded[segment.part.id]}
+												class="tool-group-chevron"
+												width="14"
+												height="14"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2.25"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+											>
+												<path d="m6 9 6 6 6-6" />
+											</svg>
+											</div>
+										</button>
+
+										{#if reasoningExpanded[segment.part.id]}
+											<div
+												class="tool-group-panel"
+												transition:slide={{ duration: 150 }}
+											>
+												<p class="text-sm leading-6 whitespace-pre-wrap text-[hsl(var(--bc-fg-muted))]">
+													{segment.part.content || 'Waiting for reasoning summary...'}
+												</p>
+											</div>
+										{/if}
+									</div>
+									{:else}
+										{@const groupKey = getToolGroupKey(segment.tools)}
+										{@const groupStatus = getToolGroupStatus(segment.tools)}
+										<div class={`assistant-section tool-group ${getToolGroupTypeClass(segment.tools)}`}>
 										<button
 											type="button"
 											class="tool-group-bar"
@@ -2083,8 +2377,9 @@
 											</div>
 										{/if}
 									</div>
-								{/if}
-							{/each}
+									{/if}
+								{/each}
+							</div>
 
 							{#if message.parts.length === 0 && message.pending}
 								<p class="bc-muted text-sm">Waiting for the first tokens...</p>
@@ -2093,6 +2388,7 @@
 							{#if getAssistantUsage(message)}
 								{@const usage = getAssistantUsage(message)}
 								{@const billedCostUsd = getAssistantBilledCostUsd(message)}
+								{@const totalToolCalls = getAssistantTotalToolCalls(message)}
 								{@const outputTokensPerSecond = getAssistantOutputTokensPerSecond(message)}
 								{#if usage}
 									<div class="assistant-stats">
@@ -2108,6 +2404,9 @@
 											<div class="assistant-stat">
 												{tokenRateFormatter.format(outputTokensPerSecond)} tok/s
 											</div>
+										{/if}
+										{#if totalToolCalls !== null}
+											<div class="assistant-stat">{formatTokenCount(totalToolCalls)} tools</div>
 										{/if}
 										<div class="assistant-stat">
 											{isPricingVisible(message) ? formatCost(billedCostUsd || usage.cost.total) : 'Cost n/a'}

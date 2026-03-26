@@ -39,7 +39,7 @@ const ensureGitCache = (args: {
   cacheRoot: string;
 }) =>
   Effect.gen(function* () {
-    const cacheKey = createCacheKey(`${args.resource.url}#${args.resource.branch}`);
+    const cacheKey = createCacheKey(`${args.resource.url}#${args.resource.branch ?? "default"}`);
     const repoCachePath = path.join(args.cacheRoot, `${args.resource.name}-${cacheKey}`);
     const gitDirectory = path.join(repoCachePath, ".git");
 
@@ -82,8 +82,7 @@ const ensureGitCache = (args: {
           "clone",
           "--depth",
           "1",
-          "--branch",
-          args.resource.branch,
+          ...(args.resource.branch ? ["--branch", args.resource.branch] : []),
           args.resource.url,
           repoCachePath,
         ],
@@ -111,7 +110,13 @@ const ensureGitCache = (args: {
 
     const fetchResult = yield* runProcess({
       command: "git",
-      args: ["fetch", "--depth", "1", "origin", args.resource.branch],
+      args: [
+        "fetch",
+        "--depth",
+        "1",
+        "origin",
+        ...(args.resource.branch ? [args.resource.branch] : []),
+      ],
       cwd: repoCachePath,
       timeoutMs: 120_000,
     }).pipe(

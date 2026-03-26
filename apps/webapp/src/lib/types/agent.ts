@@ -152,14 +152,55 @@ export interface AgentAssistantTextDeltaEvent {
   readonly timestamp: number;
 }
 
+export interface AgentReasoningContentPart {
+  readonly thinking: string;
+  readonly thinkingSignature?: string;
+  readonly redacted?: boolean;
+}
+
+export interface AgentReasoningStartEvent {
+  readonly type: "reasoning_start";
+  readonly timestamp: number;
+}
+
+export interface AgentReasoningDeltaEvent {
+  readonly type: "reasoning_delta";
+  readonly delta: string;
+  readonly timestamp: number;
+}
+
+export interface AgentReasoningEndEvent {
+  readonly type: "reasoning_end";
+  readonly timestamp: number;
+}
+
 export interface AgentAssistantMessageEvent {
   readonly type: "assistant_message";
   readonly content: string;
+  readonly reasoning: readonly AgentReasoningContentPart[];
   readonly usage: Usage;
   readonly api: string;
   readonly provider: string;
   readonly model: string;
   readonly errorMessage?: string;
+  readonly timestamp: number;
+}
+
+export interface AgentRunMetrics {
+  readonly priceUsd: number;
+  readonly totalToolCalls: number;
+  readonly outputTokens: number;
+  readonly generationDurationMs: number | null;
+  readonly outputTokensPerSecond: number | null;
+}
+
+export type PersistedAssistantMessage = AssistantMessage & {
+  readonly runMetrics?: AgentRunMetrics;
+};
+
+export interface AgentRunMetricsEvent {
+  readonly type: "run_metrics";
+  readonly metrics: AgentRunMetrics;
   readonly timestamp: number;
 }
 
@@ -241,7 +282,11 @@ export type AgentToolCallEndEvent =
 export type AgentPromptStreamEvent =
   | AgentReadyEvent
   | AgentAssistantTextDeltaEvent
+  | AgentReasoningStartEvent
+  | AgentReasoningDeltaEvent
+  | AgentReasoningEndEvent
   | AgentAssistantMessageEvent
+  | AgentRunMetricsEvent
   | AgentToolCallStartEvent
   | AgentToolCallEndEvent
   | AgentDoneEvent;
@@ -293,6 +338,14 @@ const isUsage = (value: unknown): value is Usage =>
   typeof value.cost.cacheWrite === "number" &&
   typeof value.cost.total === "number";
 
+export const isAgentRunMetrics = (value: unknown): value is AgentRunMetrics =>
+  isRecord(value) &&
+  typeof value.priceUsd === "number" &&
+  typeof value.totalToolCalls === "number" &&
+  typeof value.outputTokens === "number" &&
+  (value.generationDurationMs === null || typeof value.generationDurationMs === "number") &&
+  (value.outputTokensPerSecond === null || typeof value.outputTokensPerSecond === "number");
+
 const stopReasons = new Set(["stop", "length", "toolUse", "error", "aborted"]);
 
 export const isUserMessage = (value: unknown): value is UserMessage =>
@@ -303,7 +356,7 @@ export const isUserMessage = (value: unknown): value is UserMessage =>
       value.content.every((content) => isTextContent(content) || isImageContent(content)))) &&
   typeof value.timestamp === "number";
 
-export const isAssistantMessage = (value: unknown): value is AssistantMessage =>
+export const isAssistantMessage = (value: unknown): value is PersistedAssistantMessage =>
   isRecord(value) &&
   value.role === "assistant" &&
   Array.isArray(value.content) &&
@@ -316,6 +369,7 @@ export const isAssistantMessage = (value: unknown): value is AssistantMessage =>
   isUsage(value.usage) &&
   typeof value.stopReason === "string" &&
   stopReasons.has(value.stopReason) &&
+  (value.runMetrics === undefined || isAgentRunMetrics(value.runMetrics)) &&
   (value.errorMessage === undefined || typeof value.errorMessage === "string") &&
   typeof value.timestamp === "number";
 

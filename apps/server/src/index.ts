@@ -62,4 +62,10 @@ const program = Effect.scoped(
   }),
 );
 
-NodeRuntime.runMain(program.pipe(Effect.provide(NodeServices.layer), Effect.orDie));
+const main = program.pipe(Effect.provide(NodeServices.layer), Effect.orDie) as Effect.Effect<
+  never,
+  never,
+  never
+>;
+
+NodeRuntime.runMain(main);

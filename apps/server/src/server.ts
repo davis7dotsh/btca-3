@@ -71,6 +71,35 @@ const ThreadPathParams = Schema.Struct({
   threadId: Schema.NonEmptyString,
 });
 
+type ResourceScope = "local" | "global";
+
+type AddResourceInput =
+  | {
+      readonly type: "git";
+      readonly name: string;
+      readonly url: string;
+      readonly branch?: string;
+      readonly searchPath?: string;
+      readonly searchPaths?: readonly string[];
+      readonly specialNotes?: string;
+      readonly scope?: ResourceScope;
+    }
+  | {
+      readonly type: "local";
+      readonly name: string;
+      readonly path: string;
+      readonly specialNotes?: string;
+      readonly scope?: ResourceScope;
+    }
+  | {
+      readonly type: "npm";
+      readonly name: string;
+      readonly package: string;
+      readonly version?: string;
+      readonly specialNotes?: string;
+      readonly scope?: ResourceScope;
+    };
+
 const getErrorMessage = (error: unknown) => {
   if (error instanceof ConfigError) return error.message;
   if (error instanceof AuthError) return error.message;
@@ -90,6 +119,129 @@ const parseAuthProvider = (value: string) => {
   }
 
   return value;
+};
+
+const getNonEmptyString = (record: Record<string, unknown>, key: string) => {
+  const value = record[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+};
+
+const getOptionalString = (record: Record<string, unknown>, key: string) => {
+  const value = record[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+};
+
+const getOptionalStringArray = (record: Record<string, unknown>, key: string) => {
+  const value = record[key];
+
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+    ? value.map((entry) => entry.trim()).filter(Boolean)
+    : undefined;
+};
+
+const getOptionalResourceScope = (record: Record<string, unknown>) => {
+  const scope = record.scope;
+  return scope === "local" || scope === "global" ? scope : undefined;
+};
+
+const parseAddResourceInput = (body: unknown): AddResourceInput => {
+  if (typeof body !== "object" || body === null) {
+    throw new ConfigError({
+      message: "Invalid resource body.",
+    });
+  }
+
+  const record = body as Record<string, unknown>;
+  const type = getNonEmptyString(record, "type");
+  const name = getNonEmptyString(record, "name");
+
+  if (!type || !name) {
+    throw new ConfigError({
+      message: 'Resource "type" and "name" are required.',
+    });
+  }
+
+  if (type === "git") {
+    const url = getNonEmptyString(record, "url");
+
+    if (!url) {
+      throw new ConfigError({
+        message: 'Git resources require a non-empty "url".',
+      });
+    }
+
+    return {
+      type,
+      name,
+      url,
+      branch: getOptionalString(record, "branch"),
+      searchPath: getOptionalString(record, "searchPath"),
+      searchPaths: getOptionalStringArray(record, "searchPaths"),
+      specialNotes: getOptionalString(record, "specialNotes"),
+      scope: getOptionalResourceScope(record),
+    };
+  }
+
+  if (type === "local") {
+    const resourcePath = getNonEmptyString(record, "path");
+
+    if (!resourcePath) {
+      throw new ConfigError({
+        message: 'Local resources require a non-empty "path".',
+      });
+    }
+
+    return {
+      type,
+      name,
+      path: resourcePath,
+      specialNotes: getOptionalString(record, "specialNotes"),
+      scope: getOptionalResourceScope(record),
+    };
+  }
+
+  if (type === "npm") {
+    const packageName = getNonEmptyString(record, "package");
+
+    if (!packageName) {
+      throw new ConfigError({
+        message: 'NPM resources require a non-empty "package".',
+      });
+    }
+
+    return {
+      type,
+      name,
+      package: packageName,
+      version: getOptionalString(record, "version"),
+      specialNotes: getOptionalString(record, "specialNotes"),
+      scope: getOptionalResourceScope(record),
+    };
+  }
+
+  throw new ConfigError({
+    message: `Unsupported resource type "${type}".`,
+  });
+};
+
+const parseRemoveResourceInput = (body: unknown) => {
+  if (typeof body !== "object" || body === null) {
+    throw new ConfigError({
+      message: "Invalid remove resource body.",
+    });
+  }
+
+  const name = getNonEmptyString(body as Record<string, unknown>, "name");
+
+  if (!name) {
+    throw new ConfigError({
+      message: 'Remove resource requests require a non-empty "name".',
+    });
+  }
+
+  return {
+    name,
+  };
 };
 
 const getErrorStatus = (error: unknown) => {
@@ -262,6 +414,64 @@ export const RoutesLive = Layer.mergeAll(
         const resources = yield* ResourcesService;
         return {
           resources: yield* resources.listConfiguredResources,
+        };
+      }),
+    ),
+  ),
+  HttpRouter.add(
+    "POST",
+    "/config/resources",
+    handleJsonRoute(
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const rawBody = yield* request.json;
+        const body = yield* Effect.try({
+          try: () => parseAddResourceInput(rawBody),
+          catch: (cause) =>
+            cause instanceof Error
+              ? cause
+              : new ConfigError({
+                  message: "Invalid resource body.",
+                  cause,
+                }),
+        });
+        const config = yield* Config;
+
+        const { scope, ...resource } = body;
+        const added = yield* config.addResource(resource, scope ?? "local");
+
+        return {
+          resource: added,
+          scope: scope ?? "local",
+        };
+      }),
+      {
+        status: 201,
+      },
+    ),
+  ),
+  HttpRouter.add(
+    "DELETE",
+    "/config/resources",
+    handleJsonRoute(
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const rawBody = yield* request.json;
+        const body = yield* Effect.try({
+          try: () => parseRemoveResourceInput(rawBody),
+          catch: (cause) =>
+            cause instanceof Error
+              ? cause
+              : new ConfigError({
+                  message: "Invalid remove resource body.",
+                  cause,
+                }),
+        });
+        const config = yield* Config;
+        yield* config.removeResource(body.name);
+
+        return {
+          name: body.name,
         };
       }),
     ),

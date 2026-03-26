@@ -132,6 +132,30 @@ const resolveModel = (args: { modelId: string; provider: string; baseUrl?: strin
   } satisfies Model<typeof model.api>;
 };
 
+const getEventTimestamp = (event: AgentEvent) =>
+  "timestamp" in event && typeof event.timestamp === "number" ? event.timestamp : Date.now();
+
+const buildRunMetrics = (args: {
+  priceUsd: number;
+  totalToolCalls: number;
+  outputTokens: number;
+  generationDurationMs: number;
+}) => {
+  const generationDurationMs = args.generationDurationMs > 0 ? args.generationDurationMs : null;
+  const outputTokensPerSecond =
+    generationDurationMs === null || args.outputTokens <= 0
+      ? null
+      : args.outputTokens / (generationDurationMs / 1000);
+
+  return {
+    priceUsd: args.priceUsd,
+    totalToolCalls: args.totalToolCalls,
+    outputTokens: args.outputTokens,
+    generationDurationMs,
+    outputTokensPerSecond,
+  } satisfies AgentRunMetrics;
+};
+
 const buildSystemPrompt = (workspaceDir: string) =>
   [
     BASE_PROMPT.trim(),
@@ -151,6 +175,14 @@ export class AgentError extends Data.TaggedError("AgentError")<{
   readonly cause?: unknown;
 }> {}
 
+type AgentRunMetrics = {
+  readonly priceUsd: number;
+  readonly totalToolCalls: number;
+  readonly outputTokens: number;
+  readonly generationDurationMs: number | null;
+  readonly outputTokensPerSecond: number | null;
+};
+
 type RunAgentResult = {
   readonly threadId: string;
   readonly workspaceDir: string;
@@ -159,6 +191,7 @@ type RunAgentResult = {
   readonly resourceNames: readonly string[];
   readonly answer: string;
   readonly messages: readonly AgentMessage[];
+  readonly runMetrics: AgentRunMetrics | null;
 };
 
 type StreamAgentResult = {
@@ -286,6 +319,7 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
         prompt: string;
         modelId?: string;
         resourceNames?: readonly string[];
+        quiet?: boolean;
       }) =>
         Effect.gen(function* () {
           const trimmedPrompt = args.prompt.trim();
@@ -317,7 +351,14 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
             activity: preview,
           });
 
-          const loadedResources = yield* resources.loadManyByName(selectedResourceNames).pipe(
+          if (args.quiet !== true) {
+            console.debug("Agent resources starting to load", {
+              threadId: resolvedThreadId,
+              resourceNames: selectedResourceNames,
+            });
+          }
+
+          const loadedResources = yield* resources.loadMany(selectedResourceNames).pipe(
             Effect.mapError(
               (cause) =>
                 new AgentError({
@@ -326,6 +367,14 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
                 }),
             ),
           );
+
+          if (args.quiet !== true) {
+            console.debug("Agent resources loaded", {
+              threadId: resolvedThreadId,
+              resourceCount: loadedResources.length,
+              resourceNames: loadedResources.map((resource) => resource.name),
+            });
+          }
 
           const preparedWorkspace = yield* workspace
             .prepareThreadWorkspace({
@@ -453,11 +502,61 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
       }) =>
         (async function* () {
           let finalMessages: AgentMessage[] | null = null;
+          let runMetrics: AgentRunMetrics | null = null;
+          const toolCallIds = new Set<string>();
+          let activeAssistantGenerationStartedAt: number | null = null;
+          let assistantGenerationDurationMs = 0;
+          let assistantOutputTokens = 0;
 
           try {
             for await (const event of args.rawEvents) {
+              const eventTimestamp = getEventTimestamp(event);
+
+              if (event.type === "tool_execution_start") {
+                toolCallIds.add(event.toolCallId);
+              }
+
+              if (event.type === "message_start" && event.message.role === "assistant") {
+                activeAssistantGenerationStartedAt = eventTimestamp;
+              }
+
+              if (event.type === "message_end" && event.message.role === "assistant") {
+                if (activeAssistantGenerationStartedAt !== null) {
+                  assistantGenerationDurationMs += Math.max(
+                    0,
+                    eventTimestamp - activeAssistantGenerationStartedAt,
+                  );
+                  activeAssistantGenerationStartedAt = null;
+                }
+
+                assistantOutputTokens += event.message.usage.output;
+              }
+
               if (event.type === "agent_end") {
-                finalMessages = event.messages;
+                runMetrics = buildRunMetrics({
+                  priceUsd: event.messages.reduce(
+                    (total, message) =>
+                      message.role === "assistant" ? total + message.usage.cost.total : total,
+                    0,
+                  ),
+                  totalToolCalls: toolCallIds.size,
+                  outputTokens: assistantOutputTokens,
+                  generationDurationMs: assistantGenerationDurationMs,
+                });
+
+                const finalAssistantIndex = [...event.messages]
+                  .map((message, index) => ({ message, index }))
+                  .reverse()
+                  .find(({ message }) => message.role === "assistant")?.index;
+
+                finalMessages = event.messages.map((message, index) =>
+                  finalAssistantIndex === index && message.role === "assistant"
+                    ? ({ ...message, runMetrics } as AgentMessage)
+                    : message,
+                );
+
+                yield { ...event, messages: finalMessages, runMetrics } as AgentEvent;
+                continue;
               }
 
               yield event;
@@ -531,13 +630,14 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
         })();
 
       return {
-        run: ({ threadId, prompt, modelId, resourceNames, quiet: _quiet }) =>
+        run: ({ threadId, prompt, modelId, resourceNames, quiet }) =>
           Effect.gen(function* () {
             const prepared = yield* prepareAgentRun({
               threadId,
               prompt,
               modelId,
               resourceNames,
+              quiet,
             });
 
             const finalMessages = yield* Effect.tryPromise({
@@ -579,6 +679,13 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
                 .reverse()
                 .find((message): message is Message => message.role === "assistant"),
             );
+            const finalRunMetrics =
+              [...finalMessages]
+                .reverse()
+                .find(
+                  (message): message is Message & { runMetrics?: AgentRunMetrics } =>
+                    message.role === "assistant",
+                )?.runMetrics ?? null;
 
             return {
               threadId: prepared.threadId,
@@ -588,9 +695,10 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
               resourceNames: prepared.resourceNames,
               answer,
               messages: finalMessages,
+              runMetrics: finalRunMetrics,
             } satisfies RunAgentResult;
           }),
-        askStream: ({ threadId, question, modelId, resourceNames, quiet: _quiet }) =>
+        askStream: ({ threadId, question, modelId, resourceNames, quiet }) =>
           Effect.gen(function* () {
             if (resourceNames.length === 0) {
               return yield* Effect.fail(
@@ -605,6 +713,7 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
               prompt: question,
               modelId,
               resourceNames,
+              quiet,
             });
 
             return {

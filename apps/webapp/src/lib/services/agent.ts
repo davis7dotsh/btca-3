@@ -19,6 +19,7 @@ import {
 import { defaultAgentModelId, getAgentModel } from "$lib/models";
 import { buildTaggedResourcesXml, extractTaggedResourceSlugs } from "$lib/resources";
 import type {
+  AgentRunMetrics,
   AgentPromptResult,
   PromptThreadAgentRequestInput,
   PromptThreadAgentStream,
@@ -370,6 +371,7 @@ const parsePersistedMessage = (
 const serializePersistedMessage = (
   threadId: string,
   message: AgentMessage,
+  options?: { runMetrics?: AgentRunMetrics },
 ): Effect.Effect<
   { role: "user" | "assistant" | "toolResult"; timestamp: number; rawJson: string },
   AgentError
@@ -383,7 +385,11 @@ const serializePersistedMessage = (
       return {
         role: message.role,
         timestamp: message.timestamp,
-        rawJson: JSON.stringify(message),
+        rawJson: JSON.stringify(
+          options?.runMetrics && message.role === "assistant"
+            ? { ...message, runMetrics: options.runMetrics }
+            : message,
+        ),
       };
     },
     catch: (cause) =>
@@ -423,6 +429,30 @@ const logAgentEvent = (threadId: string, event: AgentEvent) => {
     default:
       return;
   }
+};
+
+const getEventTimestamp = (event: AgentEvent) =>
+  "timestamp" in event && typeof event.timestamp === "number" ? event.timestamp : Date.now();
+
+const buildRunMetrics = (args: {
+  priceUsd: number;
+  totalToolCalls: number;
+  outputTokens: number;
+  generationDurationMs: number;
+}) => {
+  const generationDurationMs = args.generationDurationMs > 0 ? args.generationDurationMs : null;
+  const outputTokensPerSecond =
+    generationDurationMs === null || args.outputTokens <= 0
+      ? null
+      : args.outputTokens / (generationDurationMs / 1000);
+
+  return {
+    priceUsd: args.priceUsd,
+    totalToolCalls: args.totalToolCalls,
+    outputTokens: args.outputTokens,
+    generationDurationMs,
+    outputTokensPerSecond,
+  } satisfies AgentRunMetrics;
 };
 
 const createReadFileTool = (sandbox: ResolvedSandboxAdapter, threadId: string) =>
@@ -573,12 +603,21 @@ const createThreadConfig = (
     model,
     sessionId: threadId,
     getApiKey: () => (model.api === "anthropic-messages" ? OPENCODE_API_KEY : OPENAI_API_KEY),
+    ...(model.api === "openai-responses"
+      ? {
+          reasoning: "medium" as const,
+          reasoningSummary: "concise" as const,
+        }
+      : {}),
     convertToLlm: (messages: AgentMessage[]) =>
       messages.filter(
         (message) =>
           message.role === "user" || message.role === "assistant" || message.role === "toolResult",
       ),
-  }) satisfies AgentLoopConfig;
+  }) satisfies AgentLoopConfig & {
+    reasoning?: "minimal" | "low" | "medium" | "high" | "xhigh";
+    reasoningSummary?: "auto" | "detailed" | "concise" | null;
+  };
 
 const buildPromptResult = (
   input: PromptThreadAgentRequestInput,
@@ -747,6 +786,10 @@ const createPromptThread =
         ];
         const turnCost = createEmptyTurnCostBreakdown();
         const pendingToolCalls = new Map<string, { toolName: string; args: ToolCallArguments }>();
+        const toolCallIds = new Set<string>();
+        let activeAssistantGenerationStartedAt: number | null = null;
+        let assistantGenerationDurationMs = 0;
+        let assistantOutputTokens = 0;
         const events = agentLoop(
           messages,
           createThreadContext(
@@ -775,8 +818,10 @@ const createPromptThread =
             try {
               for await (const event of events) {
                 logAgentEvent(input.threadId, event);
+                const eventTimestamp = getEventTimestamp(event);
 
                 if (event.type === "tool_execution_start") {
+                  toolCallIds.add(event.toolCallId);
                   pendingToolCalls.set(event.toolCallId, {
                     toolName: event.toolName,
                     args: event.args,
@@ -830,15 +875,42 @@ const createPromptThread =
                   pendingToolCalls.delete(event.toolCallId);
                 }
 
+                if (event.type === "message_start" && event.message.role === "assistant") {
+                  activeAssistantGenerationStartedAt = eventTimestamp;
+                }
+
                 if (event.type === "message_end" && event.message.role === "assistant") {
+                  if (activeAssistantGenerationStartedAt !== null) {
+                    assistantGenerationDurationMs += Math.max(
+                      0,
+                      eventTimestamp - activeAssistantGenerationStartedAt,
+                    );
+                    activeAssistantGenerationStartedAt = null;
+                  }
+
+                  assistantOutputTokens += event.message.usage.output;
                   turnCost.modelUsd = addUsd(turnCost.modelUsd, event.message.usage.cost.total);
                 }
 
                 if (event.type === "agent_end") {
                   turnCost.totalUsd = addUsd(turnCost.modelUsd, turnCost.boxUsd, turnCost.exaUsd);
+                  const runMetrics = buildRunMetrics({
+                    priceUsd: turnCost.totalUsd,
+                    totalToolCalls: toolCallIds.size,
+                    outputTokens: assistantOutputTokens,
+                    generationDurationMs: assistantGenerationDurationMs,
+                  });
+                  const finalAssistantIndex = [...event.messages]
+                    .map((message, index) => ({ message, index }))
+                    .reverse()
+                    .find(({ message }) => message.role === "assistant")?.index;
                   const storedMessages = await Effect.runPromise(
-                    Effect.forEach(event.messages, (message: AgentMessage) =>
-                      serializePersistedMessage(input.threadId, message),
+                    Effect.all(
+                      event.messages.map((message: AgentMessage, index) =>
+                        serializePersistedMessage(input.threadId, message, {
+                          runMetrics: finalAssistantIndex === index ? runMetrics : undefined,
+                        }),
+                      ),
                     ),
                   );
 
@@ -899,6 +971,8 @@ const createPromptThread =
                     sandboxId: ensuredSandbox.id,
                     sandboxProvider: threadSandbox.providerLabel,
                     costUsd: turnCost.totalUsd,
+                    totalToolCalls: runMetrics.totalToolCalls,
+                    outputTokensPerSecond: runMetrics.outputTokensPerSecond,
                     modelUsd: turnCost.modelUsd,
                     boxUsd: turnCost.boxUsd,
                     exaUsd: turnCost.exaUsd,
@@ -906,6 +980,12 @@ const createPromptThread =
                     totalPersistedMessages:
                       (persistedThread?.thread.messageCount ?? 0) + storedMessages.length,
                   });
+
+                  yield {
+                    ...event,
+                    runMetrics,
+                  } as AgentEvent;
+                  continue;
                 }
 
                 yield event;

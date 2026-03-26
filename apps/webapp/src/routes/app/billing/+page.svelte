@@ -205,7 +205,7 @@
         </div>
       </div>
 
-      <div class="rounded-[1.5rem] border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg-subtle))] p-5">
+      <div class="flex h-full flex-col justify-between p-1">
         <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[hsl(var(--bc-fg-muted))]">
           Current plan
         </p>
@@ -239,18 +239,6 @@
             disabled={!isAuthenticated || portalPending || !billingState?.hasPaidPlan}
           >
             {portalPending ? "Opening portal..." : "Manage billing"}
-          </button>
-
-          <button
-            type="button"
-            class="bc-btn w-full justify-center"
-            onclick={() => {
-              isLoading = true;
-              void loadBilling();
-            }}
-            disabled={isLoading}
-          >
-            {isLoading ? "Refreshing..." : "Refresh usage"}
           </button>
         </div>
       </div>

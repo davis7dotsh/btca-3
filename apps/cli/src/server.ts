@@ -22,16 +22,126 @@ export interface ServerFlags {
   readonly debug: boolean;
 }
 
+type ConfigSnapshotResponse = {
+  readonly config: {
+    readonly startupDirectory: string;
+    readonly globalConfigPath: string;
+    readonly localConfigPath: string;
+    readonly loadedConfigPaths: readonly string[];
+    readonly dataDirectory: string;
+    readonly providerTimeoutMs: number;
+    readonly maxSteps: number;
+    readonly model: string;
+    readonly provider: string;
+    readonly providerOptions: Record<string, { readonly baseURL?: string; readonly name?: string }>;
+    readonly resources: readonly (
+      | {
+          readonly type: "git";
+          readonly name: string;
+          readonly url: string;
+          readonly branch?: string;
+          readonly searchPath?: string;
+          readonly searchPaths?: readonly string[];
+          readonly specialNotes?: string;
+        }
+      | {
+          readonly type: "local";
+          readonly name: string;
+          readonly path: string;
+          readonly specialNotes?: string;
+        }
+      | {
+          readonly type: "npm";
+          readonly name: string;
+          readonly package: string;
+          readonly version?: string;
+          readonly specialNotes?: string;
+        }
+    )[];
+    readonly scopes: {
+      readonly model: "default" | "global" | "local";
+      readonly resources: Readonly<Record<string, "default" | "global" | "local">>;
+    };
+  };
+  readonly model: {
+    readonly provider: string;
+    readonly model: string;
+    readonly providerOptions: Record<string, { readonly baseURL?: string; readonly name?: string }>;
+    readonly providerTimeoutMs: number;
+    readonly maxSteps: number;
+    readonly scope: "default" | "global" | "local";
+  };
+};
+
+type ResourcesResponse = {
+  readonly resources: readonly (
+    | {
+        readonly type: "git";
+        readonly name: string;
+        readonly url: string;
+        readonly branch?: string;
+        readonly searchPath?: string;
+        readonly searchPaths?: readonly string[];
+        readonly specialNotes?: string;
+      }
+    | {
+        readonly type: "local";
+        readonly name: string;
+        readonly path: string;
+        readonly specialNotes?: string;
+      }
+    | {
+        readonly type: "npm";
+        readonly name: string;
+        readonly package: string;
+        readonly version?: string;
+        readonly specialNotes?: string;
+      }
+  )[];
+};
+
 export interface ServerDef {
   readonly baseUrl: string;
+  readonly quiet: boolean;
   readonly health: () => Effect.Effect<HealthResponse, ServerServiceError>;
   readonly hello: (name: string) => Effect.Effect<HelloResponse, ServerServiceError>;
+  readonly getConfig: () => Effect.Effect<ConfigSnapshotResponse, ServerServiceError>;
+  readonly getResources: () => Effect.Effect<ResourcesResponse, ServerServiceError>;
   readonly getAuthState: () => Effect.Effect<AuthState, ServerServiceError>;
   readonly loginApiKey: (
     provider: AuthProviderId,
     apiKey: string,
   ) => Effect.Effect<AuthState, ServerServiceError>;
   readonly logout: (provider: AuthProviderId) => Effect.Effect<AuthState, ServerServiceError>;
+  readonly addResource: (
+    args:
+      | {
+          readonly type: "git";
+          readonly name: string;
+          readonly url: string;
+          readonly branch?: string;
+          readonly searchPath?: string;
+          readonly searchPaths?: readonly string[];
+          readonly specialNotes?: string;
+          readonly scope?: "local" | "global";
+        }
+      | {
+          readonly type: "local";
+          readonly name: string;
+          readonly path: string;
+          readonly specialNotes?: string;
+          readonly scope?: "local" | "global";
+        }
+      | {
+          readonly type: "npm";
+          readonly name: string;
+          readonly package: string;
+          readonly version?: string;
+          readonly specialNotes?: string;
+          readonly scope?: "local" | "global";
+        },
+  ) => Effect.Effect<unknown, ServerServiceError>;
+  readonly removeResource: (name: string) => Effect.Effect<void, ServerServiceError>;
   readonly askStream: (args: {
     readonly question: string;
     readonly resourceNames: readonly string[];
@@ -71,8 +181,11 @@ const makeServerService = ({ baseUrl, quiet }: { baseUrl: string; quiet: boolean
 
   return {
     baseUrl,
+    quiet,
     health: () => rpc<HealthResponse>("/health"),
     hello: (name) => rpc<HelloResponse>(`/hello/${encodeURIComponent(name)}`),
+    getConfig: () => rpc<ConfigSnapshotResponse>("/config"),
+    getResources: () => rpc<ResourcesResponse>("/resources"),
     getAuthState: () =>
       rpc<{
         auth: AuthState;
@@ -95,6 +208,24 @@ const makeServerService = ({ baseUrl, quiet }: { baseUrl: string; quiet: boolean
       }>(`/auth/${encodeURIComponent(provider)}`, {
         method: "DELETE",
       }).pipe(Effect.map((response) => response.auth)),
+    addResource: (resource) =>
+      rpc("/config/resources", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(resource),
+      }),
+    removeResource: (name) =>
+      rpc("/config/resources", {
+        method: "DELETE",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name,
+        }),
+      }).pipe(Effect.asVoid),
     askStream: ({ question, resourceNames, quiet: requestQuiet }) =>
       Effect.tryPromise({
         try: async () => {

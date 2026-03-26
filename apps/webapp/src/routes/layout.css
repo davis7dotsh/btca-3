@@ -579,9 +579,32 @@
   }
 
   .chat-message {
+    position: relative;
     display: flex;
     flex-direction: column;
     padding: 8px 14px;
+  }
+
+  .chat-message + .chat-message {
+    margin-top: 32px;
+  }
+
+  .chat-message + .chat-message::before {
+    content: "";
+    position: absolute;
+    top: -18px;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, hsl(var(--bc-fg)) 24%, hsl(var(--bc-border))) 10%,
+      color-mix(in oklab, hsl(var(--bc-fg)) 24%, hsl(var(--bc-border))) 90%,
+      transparent
+    );
+    box-shadow: 0 0 0 1px hsl(var(--bc-shadow) / 0.08);
+    pointer-events: none;
   }
 
   .chat-message-user {
@@ -591,6 +614,7 @@
 
   .chat-message-actions {
     display: flex;
+    gap: 8px;
     justify-content: flex-end;
     margin-top: 12px;
   }
@@ -626,6 +650,27 @@
   .chat-message-assistant {
     padding: 6px 0;
     background: transparent;
+  }
+
+  .assistant-sections {
+    display: grid;
+    gap: 14px;
+  }
+
+  .assistant-section {
+    min-width: 0;
+  }
+
+  .assistant-section-text > .prose {
+    margin: 0;
+  }
+
+  .assistant-section-text > .prose > :first-child {
+    margin-top: 0;
+  }
+
+  .assistant-section-text > .prose > :last-child {
+    margin-bottom: 0;
   }
 
   .assistant-meta-chip {
@@ -1163,7 +1208,7 @@
   }
 
   .tool-group {
-    margin: 10px 0;
+    margin: 0;
   }
 
   .tool-group-bar {
@@ -1172,15 +1217,15 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 8px 14px;
-    border: 1px solid hsl(var(--bc-border));
-    background: hsl(var(--bc-surface));
+    padding: 8px 0;
+    border: none;
+    background: transparent;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: color 0.15s ease;
   }
 
   .tool-group-bar:hover {
-    background: color-mix(in oklab, hsl(var(--bc-surface)) 90%, hsl(var(--bc-surface-2)));
+    color: hsl(var(--bc-fg));
   }
 
   .tool-group-bar-left {
@@ -1220,8 +1265,8 @@
 
   .tool-group-panel {
     display: grid;
-    gap: 4px;
-    padding-top: 4px;
+    gap: 6px;
+    padding: 2px 0 0 18px;
   }
 
   .tool-group-panel > .tool-card {
@@ -1229,13 +1274,13 @@
   }
 
   .tool-card {
-    margin: 10px 0;
-    border: 1px solid hsl(var(--bc-border));
-    background: hsl(var(--bc-surface));
+    margin: 0;
+    border: none;
+    background: transparent;
   }
 
   .tool-card-open {
-    background: color-mix(in oklab, hsl(var(--bc-surface)) 90%, hsl(var(--bc-surface-2)));
+    background: transparent;
   }
 
   .tool-card-header {
@@ -1244,7 +1289,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 12px 14px;
+    padding: 8px 0;
     border: none;
     background: transparent;
     text-align: left;
@@ -1269,8 +1314,8 @@
   .tool-card-body {
     display: grid;
     gap: 12px;
-    padding: 0 14px 14px;
-    border-top: 1px solid hsl(var(--bc-border));
+    padding: 0 0 8px 17px;
+    border-top: none;
   }
 
   .tool-meta-grid {
@@ -1317,9 +1362,9 @@
     margin: 0;
     max-height: 18rem;
     overflow: auto;
-    padding: 10px 12px;
-    border: 1px solid hsl(var(--bc-border));
-    background: hsl(var(--bc-surface-2));
+    padding: 0;
+    border: none;
+    background: transparent;
     font-size: 12px;
     line-height: 1.6;
     white-space: pre-wrap;
@@ -1327,9 +1372,9 @@
   }
 
   .tool-empty-state {
-    padding: 12px;
-    border: 1px solid hsl(var(--bc-border));
-    background: hsl(var(--bc-surface-2));
+    padding: 0;
+    border: none;
+    background: transparent;
     font-size: 12px;
     line-height: 1.6;
     color: hsl(var(--bc-fg-muted));
@@ -1338,14 +1383,14 @@
   .tool-file-view {
     max-height: 22rem;
     overflow: auto;
-    border: 1px solid hsl(var(--bc-border));
-    background: hsl(var(--bc-surface-2));
+    border: none;
+    background: transparent;
   }
 
   .tool-file-line {
     display: grid;
     grid-template-columns: 56px minmax(0, 1fr);
-    border-bottom: 1px solid color-mix(in oklab, hsl(var(--bc-border)) 70%, transparent);
+    border-bottom: none;
   }
 
   .tool-file-line:last-child {
@@ -1353,8 +1398,8 @@
   }
 
   .tool-file-gutter {
-    padding: 8px 10px;
-    border-right: 1px solid hsl(var(--bc-border));
+    padding: 8px 10px 8px 0;
+    border-right: none;
     font-family: var(--font-family-mono);
     font-size: 11px;
     text-align: right;
@@ -1363,7 +1408,7 @@
   }
 
   .tool-file-code {
-    padding: 8px 12px;
+    padding: 8px 0;
     font-size: 12px;
     line-height: 1.6;
     white-space: pre-wrap;
@@ -1398,14 +1443,6 @@
 
   .tool-type-read {
     --tool-accent: var(--bc-tool-read);
-  }
-
-  .tool-group[class*="tool-type-"] > .tool-group-bar {
-    border-left: 3px solid hsl(var(--tool-accent));
-  }
-
-  .tool-card[class*="tool-type-"] {
-    border-left: 3px solid hsl(var(--tool-accent));
   }
 
   .tool-type-search .tool-dot-completed {
