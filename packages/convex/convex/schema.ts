@@ -48,6 +48,24 @@ export default defineSchema({
     rawJson: v.string(),
     createdAt: v.number(),
   }).index("by_thread_sequence", ["threadId", "sequence"]),
+  agentThreadAttachments: defineTable({
+    threadId: v.string(),
+    threadRef: v.id("agentThreads"),
+    userId: v.string(),
+    messageSequence: v.optional(v.number()),
+    status: v.union(v.literal("pending"), v.literal("attached")),
+    fileKey: v.string(),
+    ufsUrl: v.string(),
+    fileName: v.string(),
+    fileSize: v.number(),
+    mimeType: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_thread_created_at", ["threadId", "createdAt"])
+    .index("by_thread_message_sequence", ["threadId", "messageSequence"])
+    .index("by_thread_status", ["threadId", "status"])
+    .index("by_file_key", ["fileKey"]),
   resources: defineTable({
     userId: v.string(),
     name: v.string(),

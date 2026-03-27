@@ -10,7 +10,6 @@ const storedMessageValidator = v.object({
 });
 
 const threadStatusValidator = v.union(v.literal("idle"), v.literal("running"), v.literal("error"));
-
 export const getThreadContext = privateQuery({
   args: {
     threadId: v.string(),
@@ -40,6 +39,14 @@ export const getThreadContext = privateQuery({
           query.eq("threadId", args.threadId),
       )
       .collect();
+    const attachments = await ctx.db
+      .query("agentThreadAttachments")
+      .withIndex(
+        "by_thread_created_at",
+        (query: IndexRangeBuilder<Doc<"agentThreadAttachments">, ["threadId", "createdAt"]>) =>
+          query.eq("threadId", args.threadId),
+      )
+      .collect();
 
     return {
       thread: {
@@ -63,7 +70,68 @@ export const getThreadContext = privateQuery({
         timestamp: message.messageTimestamp ?? null,
         rawJson: message.rawJson,
       })),
+      attachments: attachments
+        .sort(
+          (a: Doc<"agentThreadAttachments">, b: Doc<"agentThreadAttachments">) =>
+            a.createdAt - b.createdAt,
+        )
+        .map((attachment: Doc<"agentThreadAttachments">) => ({
+          id: attachment._id,
+          threadId: attachment.threadId,
+          messageSequence: attachment.messageSequence ?? null,
+          status: attachment.status,
+          fileKey: attachment.fileKey,
+          ufsUrl: attachment.ufsUrl,
+          fileName: attachment.fileName,
+          fileSize: attachment.fileSize,
+          mimeType: attachment.mimeType,
+          createdAt: attachment.createdAt,
+          updatedAt: attachment.updatedAt,
+        })),
     };
+  },
+});
+
+export const resolvePromptAttachments = privateQuery({
+  args: {
+    threadId: v.string(),
+    userId: v.string(),
+    attachmentIds: v.array(v.id("agentThreadAttachments")),
+  },
+  handler: async (ctx, args) => {
+    const resolved = [];
+
+    for (const attachmentId of args.attachmentIds) {
+      const attachment = await ctx.db.get(attachmentId);
+
+      if (attachment === null) {
+        throw new Error("Attachment not found.");
+      }
+
+      if (attachment.userId !== args.userId || attachment.threadId !== args.threadId) {
+        throw new Error("Unauthorized attachment access");
+      }
+
+      if (attachment.status !== "pending" || attachment.messageSequence !== undefined) {
+        throw new Error("Attachment is no longer pending.");
+      }
+
+      resolved.push({
+        id: attachment._id,
+        threadId: attachment.threadId,
+        messageSequence: null,
+        status: attachment.status,
+        fileKey: attachment.fileKey,
+        ufsUrl: attachment.ufsUrl,
+        fileName: attachment.fileName,
+        fileSize: attachment.fileSize,
+        mimeType: attachment.mimeType,
+        createdAt: attachment.createdAt,
+        updatedAt: attachment.updatedAt,
+      });
+    }
+
+    return resolved;
   },
 });
 
@@ -78,6 +146,7 @@ export const appendThreadMessages = privateMutation({
     completedAt: v.number(),
     promptPreview: v.string(),
     messages: v.array(storedMessageValidator),
+    attachmentIds: v.optional(v.array(v.id("agentThreadAttachments"))),
   },
   handler: async (ctx, args) => {
     const thread = await ctx.db
@@ -124,6 +193,30 @@ export const appendThreadMessages = privateMutation({
       });
     }
 
+    if (args.attachmentIds && args.attachmentIds.length > 0) {
+      for (const attachmentId of args.attachmentIds) {
+        const attachment = await ctx.db.get(attachmentId);
+
+        if (attachment === null) {
+          throw new Error("Attachment not found.");
+        }
+
+        if (attachment.userId !== args.userId || attachment.threadId !== args.threadId) {
+          throw new Error("Unauthorized attachment access");
+        }
+
+        if (attachment.status !== "pending" || attachment.messageSequence !== undefined) {
+          throw new Error("Attachment is no longer pending.");
+        }
+
+        await ctx.db.patch(attachment._id, {
+          messageSequence: baseSequence,
+          status: "attached",
+          updatedAt: args.completedAt,
+        });
+      }
+    }
+
     const nextMessageCount = baseSequence + args.messages.length;
 
     await ctx.db.patch(threadRef, {
@@ -142,6 +235,93 @@ export const appendThreadMessages = privateMutation({
     return {
       threadId: args.threadId,
       messageCount: nextMessageCount,
+    };
+  },
+});
+
+export const createPendingAttachment = privateMutation({
+  args: {
+    threadId: v.string(),
+    userId: v.string(),
+    fileKey: v.string(),
+    ufsUrl: v.string(),
+    fileName: v.string(),
+    fileSize: v.number(),
+    mimeType: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db
+      .query("agentThreads")
+      .withIndex("by_thread_id", (query: IndexRangeBuilder<Doc<"agentThreads">, ["threadId"]>) =>
+        query.eq("threadId", args.threadId),
+      )
+      .unique();
+
+    if (thread === null) {
+      throw new Error("Thread not found.");
+    }
+
+    if (thread.userId !== args.userId) {
+      throw new Error("Unauthorized thread access");
+    }
+
+    const now = Date.now();
+    const attachmentId = await ctx.db.insert("agentThreadAttachments", {
+      threadId: args.threadId,
+      threadRef: thread._id,
+      userId: args.userId,
+      messageSequence: undefined,
+      status: "pending",
+      fileKey: args.fileKey,
+      ufsUrl: args.ufsUrl,
+      fileName: args.fileName,
+      fileSize: args.fileSize,
+      mimeType: args.mimeType,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return {
+      id: attachmentId,
+      threadId: args.threadId,
+      messageSequence: null,
+      status: "pending" as const,
+      fileKey: args.fileKey,
+      ufsUrl: args.ufsUrl,
+      fileName: args.fileName,
+      fileSize: args.fileSize,
+      mimeType: args.mimeType,
+      createdAt: now,
+      updatedAt: now,
+    };
+  },
+});
+
+export const removePendingAttachment = privateMutation({
+  args: {
+    attachmentId: v.id("agentThreadAttachments"),
+    userId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const attachment = await ctx.db.get(args.attachmentId);
+
+    if (attachment === null) {
+      throw new Error("Attachment not found.");
+    }
+
+    if (attachment.userId !== args.userId) {
+      throw new Error("Unauthorized attachment access");
+    }
+
+    if (attachment.status !== "pending" || attachment.messageSequence !== undefined) {
+      throw new Error("Only pending attachments can be removed.");
+    }
+
+    await ctx.db.delete(attachment._id);
+
+    return {
+      attachmentId: attachment._id,
+      fileKey: attachment.fileKey,
     };
   },
 });

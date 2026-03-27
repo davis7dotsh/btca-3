@@ -83,6 +83,10 @@ export const get = authedQuery({
       .query("agentThreadMessages")
       .withIndex("by_thread_sequence", (query) => query.eq("threadId", args.threadId))
       .collect();
+    const attachments = await ctx.db
+      .query("agentThreadAttachments")
+      .withIndex("by_thread_created_at", (query) => query.eq("threadId", args.threadId))
+      .collect();
 
     return {
       thread: toThreadListItem(thread),
@@ -92,6 +96,21 @@ export const get = authedQuery({
         timestamp: message.messageTimestamp ?? null,
         rawJson: message.rawJson,
       })),
+      attachments: attachments
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map((attachment) => ({
+          id: attachment._id,
+          threadId: attachment.threadId,
+          messageSequence: attachment.messageSequence ?? null,
+          status: attachment.status,
+          fileKey: attachment.fileKey,
+          ufsUrl: attachment.ufsUrl,
+          fileName: attachment.fileName,
+          fileSize: attachment.fileSize,
+          mimeType: attachment.mimeType,
+          createdAt: attachment.createdAt,
+          updatedAt: attachment.updatedAt,
+        })),
     };
   },
 });
@@ -219,9 +238,17 @@ export const deleteThread = authedMutation({
       .query("agentThreadMessages")
       .withIndex("by_thread_sequence", (query) => query.eq("threadId", args.threadId))
       .collect();
+    const attachments = await ctx.db
+      .query("agentThreadAttachments")
+      .withIndex("by_thread_created_at", (query) => query.eq("threadId", args.threadId))
+      .collect();
 
     for (const message of messages) {
       await ctx.db.delete(message._id);
+    }
+
+    for (const attachment of attachments) {
+      await ctx.db.delete(attachment._id);
     }
 
     await ctx.db.delete(thread._id);
@@ -271,9 +298,29 @@ export const rewindThread = authedMutation({
 
     const remainingMessages = messages.filter((message) => message.sequence < args.sequence);
 
+    const now = Date.now();
+
     for (const message of messages) {
       if (message.sequence >= args.sequence) {
         await ctx.db.delete(message._id);
+      }
+    }
+    const attachments = await ctx.db
+      .query("agentThreadAttachments")
+      .withIndex("by_thread_created_at", (query) => query.eq("threadId", args.threadId))
+      .collect();
+
+    for (const attachment of attachments) {
+      if (
+        attachment.messageSequence !== undefined &&
+        attachment.messageSequence >= args.sequence &&
+        attachment.status === "attached"
+      ) {
+        await ctx.db.patch(attachment._id, {
+          messageSequence: undefined,
+          status: "pending",
+          updatedAt: now,
+        });
       }
     }
 
@@ -281,7 +328,6 @@ export const rewindThread = authedMutation({
       .reverse()
       .find((message) => message.role === "user");
     const lastPersistedMessage = remainingMessages.at(-1);
-    const now = Date.now();
 
     await ctx.db.patch(thread._id, {
       updatedAt: now,
@@ -293,6 +339,35 @@ export const rewindThread = authedMutation({
     return {
       threadId: thread.threadId,
       messageCount: remainingMessages.length,
+    };
+  },
+});
+
+export const removePendingAttachment = authedMutation({
+  args: {
+    attachmentId: v.id("agentThreadAttachments"),
+  },
+  handler: async (ctx, args) => {
+    const userId = getUserId(ctx.identity);
+    const attachment = await ctx.db.get(args.attachmentId);
+
+    if (attachment === null) {
+      throw new Error("Attachment not found.");
+    }
+
+    if (attachment.userId !== userId) {
+      throw new Error("Unauthorized attachment access");
+    }
+
+    if (attachment.status !== "pending" || attachment.messageSequence !== undefined) {
+      throw new Error("Only pending attachments can be removed.");
+    }
+
+    await ctx.db.delete(attachment._id);
+
+    return {
+      attachmentId: attachment._id,
+      fileKey: attachment.fileKey,
     };
   },
 });

@@ -53,6 +53,7 @@ export interface PromptThreadAgentRequestInput {
   readonly threadId: string;
   readonly prompt: string;
   readonly modelId?: string;
+  readonly attachmentIds?: readonly string[];
 }
 
 export interface PromptThreadAgentInput extends PromptThreadAgentRequestInput {
@@ -105,9 +106,26 @@ export interface StoredAgentThreadMessage {
   readonly rawJson: string;
 }
 
+export type AgentThreadAttachmentStatus = "pending" | "attached";
+
+export interface StoredAgentThreadAttachment {
+  readonly id: string;
+  readonly threadId: string;
+  readonly messageSequence: number | null;
+  readonly status: AgentThreadAttachmentStatus;
+  readonly fileKey: string;
+  readonly ufsUrl: string;
+  readonly fileName: string;
+  readonly fileSize: number;
+  readonly mimeType: string;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+}
+
 export interface StoredAgentThreadContext {
   readonly thread: StoredAgentThread;
   readonly messages: readonly StoredAgentThreadMessage[];
+  readonly attachments: readonly StoredAgentThreadAttachment[];
 }
 
 export interface AgentThreadListItem {

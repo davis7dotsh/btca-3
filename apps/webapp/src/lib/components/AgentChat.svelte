@@ -3,10 +3,12 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import type { Usage } from '@mariozechner/pi-ai';
+	import type { Id } from '@btca/convex/data-model';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import { tick } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { api } from '@btca/convex/api';
+	import { createUploadThing } from '$lib/uploadthing';
 	import {
 		addUsd,
 		calculateExaContentCostUsd,
@@ -28,6 +30,7 @@
 		AgentRunMetrics,
 		AgentPromptStreamEvent,
 		AgentToolCallEndEvent,
+		StoredAgentThreadAttachment,
 		ExecCommandToolArgs,
 		ReadFileToolArgs,
 		SandboxExecuteCommandResult,
@@ -118,11 +121,28 @@
 	}
 
 	type MessageSegment = TextSegment | ReasoningSegment | ToolGroupSegment;
+	type AttachmentId = Id<'agentThreadAttachments'>;
+	type AttachmentStatus = 'uploading' | 'pending' | 'attached' | 'removing';
+
+	interface ThreadAttachment {
+		id: string;
+		fileKey: string | null;
+		ufsUrl: string;
+		previewUrl: string;
+		fileName: string;
+		fileSize: number;
+		mimeType: string;
+		status: AttachmentStatus;
+		messageSequence: number | null;
+		createdAt: number;
+		updatedAt: number;
+	}
 
 	interface UserMessage {
 		id: string;
 		role: 'user';
 		content: string;
+		attachments: ThreadAttachment[];
 		createdAt: number;
 		persistedSequence: number | null;
 	}
@@ -169,6 +189,7 @@
 
 	const authContext = getAuthContext();
 	const convex = useConvexClient();
+	const attachmentUploader = createUploadThing('agentAttachment', {});
 	const createId = () => crypto.randomUUID();
 	const createThreadId = () => `chat-${crypto.randomUUID()}`;
 	const isAgentModelId = (value: string | null | undefined): value is AgentModelId =>
@@ -248,6 +269,72 @@
 					cost: { ...usage.cost }
 				}
 			: null;
+	const cloneThreadAttachment = (attachment: ThreadAttachment): ThreadAttachment => ({
+		...attachment
+	});
+	const cloneThreadAttachments = (value: ThreadAttachment[]) => value.map(cloneThreadAttachment);
+	const cloneStoredAttachment = (attachment: StoredAgentThreadAttachment): ThreadAttachment => ({
+		id: attachment.id,
+		fileKey: attachment.fileKey,
+		ufsUrl: attachment.ufsUrl,
+		previewUrl: attachment.ufsUrl,
+		fileName: attachment.fileName,
+		fileSize: attachment.fileSize,
+		mimeType: attachment.mimeType,
+		status: attachment.status,
+		messageSequence: attachment.messageSequence,
+		createdAt: attachment.createdAt,
+		updatedAt: attachment.updatedAt
+	});
+	const revokeAttachmentPreviewUrl = (attachment: ThreadAttachment) => {
+		if (attachment.previewUrl.startsWith('blob:')) {
+			URL.revokeObjectURL(attachment.previewUrl);
+		}
+	};
+	const fileListFromDataTransfer = (dataTransfer: DataTransfer | null) =>
+		dataTransfer ? Array.from(dataTransfer.files) : [];
+	const fileListFromClipboard = (clipboardData: DataTransfer | null) => {
+		if (!clipboardData) {
+			return [];
+		}
+
+		const clipboardFiles = Array.from(clipboardData.files).filter((file) => file.type.startsWith('image/'));
+
+		if (clipboardFiles.length > 0) {
+			return clipboardFiles;
+		}
+
+		return Array.from(clipboardData.items)
+			.filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+			.map((item) => item.getAsFile())
+			.filter((file): file is File => file !== null);
+	};
+	const isImageFile = (file: File) =>
+		file.type.startsWith('image/') && !file.type.startsWith('image/video');
+	const normalizeUploadFiles = (value: FileList | readonly File[] | null) =>
+		value ? (Array.isArray(value) ? [...value] : Array.from(value)) : [];
+	const getAttachmentExtension = (attachment: ThreadAttachment) => {
+		const fileNameParts = attachment.fileName.split('.');
+		const fileNameExtension = fileNameParts.length > 1 ? fileNameParts[fileNameParts.length - 1] : '';
+
+		if (fileNameExtension) {
+			return fileNameExtension.slice(0, 4).toUpperCase();
+		}
+
+		const mimeSubtype = attachment.mimeType.split('/')[1] ?? 'IMG';
+		return mimeSubtype.slice(0, 4).toUpperCase();
+	};
+	const getAttachmentStatusLabel = (attachment: ThreadAttachment) => {
+		if (attachment.status === 'uploading') {
+			return 'Uploading';
+		}
+
+		if (attachment.status === 'removing') {
+			return 'Removing';
+		}
+
+		return 'Ready';
+	};
 	const createEmptyUsage = (): Usage => ({
 		input: 0,
 		output: 0,
@@ -678,6 +765,7 @@
 	const cloneChatMessage = (message: ChatMessage): ChatMessage => {
 		switch (message.role) {
 			case 'user':
+				return { ...message, attachments: cloneThreadAttachments(message.attachments) };
 			case 'system':
 				return { ...message };
 			case 'assistant':
@@ -745,9 +833,23 @@
 		return nextAssistant;
 	};
 
-	const hydrateStoredThreadMessages = (storedMessages: readonly StoredAgentThreadMessage[]) => {
+	const hydrateStoredThreadMessages = (
+		storedMessages: readonly StoredAgentThreadMessage[],
+		storedAttachments: readonly StoredAgentThreadAttachment[]
+	) => {
 		const hydratedMessages: ChatMessage[] = [];
 		const toolStates: Record<string, ToolCallState> = {};
+		const attachmentsBySequence = new Map<number, ThreadAttachment[]>();
+
+		for (const attachment of storedAttachments) {
+			if (attachment.messageSequence === null) {
+				continue;
+			}
+
+			const current = attachmentsBySequence.get(attachment.messageSequence) ?? [];
+			current.push(cloneStoredAttachment(attachment));
+			attachmentsBySequence.set(attachment.messageSequence, current);
+		}
 
 		for (const storedMessage of storedMessages) {
 			let parsedMessage: unknown;
@@ -767,6 +869,9 @@
 					id: createId(),
 					role: 'user',
 					content: extractPersistedText(parsedMessage.content),
+					attachments: cloneThreadAttachments(
+						attachmentsBySequence.get(storedMessage.sequence) ?? []
+					),
 					createdAt: parsedMessage.timestamp,
 					persistedSequence: storedMessage.sequence
 				});
@@ -894,7 +999,14 @@
 	let mentionMenuIndex = $state(0);
 	let retryingMessageId = $state<string | null>(null);
 	let mentionState = $state<ResourceMentionState | null>(null);
+	let dragDepth = $state(0);
+	let isChatDropActive = $state(false);
 	let threadMessageCache: Record<string, ChatMessage[]> = {};
+	let attachments = $state<ThreadAttachment[]>([]);
+	let attachmentPreviewErrors = $state<string[]>([]);
+	let spotlightAttachment = $state<ThreadAttachment | null>(null);
+	let attachmentPicker = $state<HTMLInputElement | null>(null);
+	let threadAttachmentCache: Record<string, ThreadAttachment[]> = {};
 	let threadPersistedMessageCountCache: Record<string, number> = {};
 	let currentRequest: AbortController | null = null;
 	let hasLoggedResourceLoadStart = false;
@@ -968,6 +1080,19 @@
 	const lastAssistantText = $derived(
 		lastAssistantMessage ? getAssistantText(lastAssistantMessage) : ''
 	);
+	const composerAttachments = $derived(
+		attachments.filter(
+			(attachment) => attachment.status === 'uploading' || attachment.status === 'pending' || attachment.status === 'removing'
+		)
+	);
+	const composerPendingAttachments = $derived(
+		composerAttachments.filter((attachment) => attachment.status === 'pending')
+	);
+	const isAttachmentWorkPending = $derived(
+		composerAttachments.some(
+			(attachment) => attachment.status === 'uploading' || attachment.status === 'removing'
+		)
+	);
 	const hydratedThreadMessages = $derived.by(() => {
 		if (!threadId || threadQuery.data === undefined || threadQuery.data === null) {
 			return null;
@@ -977,7 +1102,18 @@
 			return null;
 		}
 
-		return hydrateStoredThreadMessages(threadQuery.data.messages);
+		return hydrateStoredThreadMessages(threadQuery.data.messages, threadQuery.data.attachments ?? []);
+	});
+	const hydratedThreadAttachments = $derived.by(() => {
+		if (!threadId || threadQuery.data === undefined || threadQuery.data === null) {
+			return null;
+		}
+
+		if (threadQuery.data.thread.threadId !== threadId) {
+			return null;
+		}
+
+		return (threadQuery.data.attachments ?? []).map(cloneStoredAttachment);
 	});
 	const fullThreadCopyText = $derived(
 		messages
@@ -1057,6 +1193,14 @@
 	});
 
 	$effect(() => {
+		if (!threadId) {
+			return;
+		}
+
+		threadAttachmentCache[threadId] = cloneThreadAttachments(attachments);
+	});
+
+	$effect(() => {
 		if (!threadId || isStreaming || threadQuery.isLoading || hydratedThreadMessages === null) {
 			return;
 		}
@@ -1069,6 +1213,19 @@
 
 		messages = hydratedThreadMessages;
 		threadMessageCache[threadId] = cloneChatMessages(hydratedThreadMessages);
+	});
+
+	$effect(() => {
+		if (!threadId || isStreaming || threadQuery.isLoading || hydratedThreadAttachments === null) {
+			return;
+		}
+
+		if (threadAttachmentCache[threadId] !== undefined) {
+			return;
+		}
+
+		attachments = hydratedThreadAttachments;
+		threadAttachmentCache[threadId] = cloneThreadAttachments(hydratedThreadAttachments);
 	});
 
 	$effect(() => {
@@ -1226,11 +1383,14 @@
 	function restoreThreadMessages(nextThreadId: string | null) {
 		if (!nextThreadId) {
 			messages = [];
+			attachments = [];
 			return;
 		}
 
 		const cachedMessages = threadMessageCache[nextThreadId];
+		const cachedAttachments = threadAttachmentCache[nextThreadId];
 		messages = cachedMessages ? cloneChatMessages(cachedMessages) : [];
+		attachments = cachedAttachments ? cloneThreadAttachments(cachedAttachments) : [];
 	}
 
 	function getThreadPath(targetThreadId: string) {
@@ -1269,6 +1429,171 @@
 		threadPersistedMessageCountCache[createdThread.threadId] = 0;
 		await syncThreadUrl(createdThread.threadId, true);
 		return createdThread.threadId;
+	}
+
+	function openAttachmentPicker() {
+		if (isStreaming || retryingMessageId !== null || !isModelSelectionReady) {
+			return;
+		}
+
+		attachmentPicker?.click();
+	}
+
+	function markAttachmentPreviewError(attachmentId: string) {
+		if (attachmentPreviewErrors.includes(attachmentId)) {
+			return;
+		}
+
+		attachmentPreviewErrors = [...attachmentPreviewErrors, attachmentId];
+	}
+
+	function clearAttachmentPreviewError(attachmentId: string) {
+		if (!attachmentPreviewErrors.includes(attachmentId)) {
+			return;
+		}
+
+		attachmentPreviewErrors = attachmentPreviewErrors.filter((id) => id !== attachmentId);
+	}
+
+	function openAttachmentSpotlight(attachment: ThreadAttachment) {
+		if (!attachment.previewUrl || attachmentPreviewErrors.includes(attachment.id)) {
+			return;
+		}
+
+		spotlightAttachment = cloneThreadAttachment(attachment);
+	}
+
+	function closeAttachmentSpotlight() {
+		spotlightAttachment = null;
+	}
+
+	async function uploadAttachments(fileList: FileList | readonly File[] | null) {
+		if (isStreaming || retryingMessageId !== null || !isModelSelectionReady) {
+			return;
+		}
+
+		const files = normalizeUploadFiles(fileList);
+
+		if (files.length === 0) {
+			return;
+		}
+
+		const imageFiles = files.filter(isImageFile);
+		const rejectedFiles = files.filter((file) => !isImageFile(file));
+
+		if (rejectedFiles.length > 0) {
+			const message =
+				rejectedFiles.length === 1
+					? 'Only image files can be attached here.'
+					: 'Only image files can be attached here. Non-image files were skipped.';
+			errorMessage = message;
+			appendSystemMessage(message);
+		}
+
+		if (imageFiles.length === 0) {
+			return;
+		}
+
+		let activeThreadId: string;
+
+		try {
+			activeThreadId = await ensureThreadId();
+		} catch (error) {
+			const message = getHumanErrorMessage(error, 'Failed to create the thread for attachments.');
+			errorMessage = message;
+			appendSystemMessage(message);
+			return;
+		}
+
+		const temporaryAttachments = imageFiles.map((file) => ({
+			id: createId(),
+			fileKey: null,
+			ufsUrl: '',
+			previewUrl: URL.createObjectURL(file),
+			fileName: file.name,
+			fileSize: file.size,
+			mimeType: file.type || 'application/octet-stream',
+			status: 'uploading' as const,
+			messageSequence: null,
+			createdAt: Date.now(),
+			updatedAt: Date.now()
+		}));
+
+		attachments = [...attachments, ...temporaryAttachments];
+
+		try {
+			const uploaded = await attachmentUploader.startUpload(imageFiles, {
+				threadId: activeThreadId
+			});
+
+			const uploadedAttachments = (uploaded ?? [])
+				.map((result) => result.serverData)
+				.filter(
+					(value): value is StoredAgentThreadAttachment =>
+						typeof value === 'object' && value !== null && 'id' in value
+				)
+				.map(cloneStoredAttachment);
+
+			for (const attachment of temporaryAttachments) {
+				clearAttachmentPreviewError(attachment.id);
+				revokeAttachmentPreviewUrl(attachment);
+			}
+
+			attachments = [
+				...attachments.filter(
+					(candidate) => !temporaryAttachments.some((temporary) => temporary.id === candidate.id)
+				),
+				...uploadedAttachments
+			];
+		} catch (error) {
+			for (const attachment of temporaryAttachments) {
+				clearAttachmentPreviewError(attachment.id);
+				revokeAttachmentPreviewUrl(attachment);
+			}
+
+			attachments = attachments.filter(
+				(candidate) => !temporaryAttachments.some((temporary) => temporary.id === candidate.id)
+			);
+			const message = getHumanErrorMessage(error, 'Failed to upload the selected attachment.');
+			errorMessage = message;
+			appendSystemMessage(message);
+		} finally {
+			if (attachmentPicker) {
+				attachmentPicker.value = '';
+			}
+		}
+	}
+
+	async function removeAttachment(attachment: ThreadAttachment) {
+		if (attachment.status !== 'pending') {
+			return;
+		}
+
+		attachments = attachments.map((candidate) =>
+			candidate.id === attachment.id ? { ...candidate, status: 'removing' } : candidate
+		);
+
+		try {
+			const response = await fetch(`/api/agent/attachments/${encodeURIComponent(attachment.id)}`, {
+				method: 'DELETE'
+			});
+
+			if (!response.ok) {
+				const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+				throw new Error(payload?.message ?? 'Failed to remove the attachment.');
+			}
+
+			revokeAttachmentPreviewUrl(attachment);
+			clearAttachmentPreviewError(attachment.id);
+			attachments = attachments.filter((candidate) => candidate.id !== attachment.id);
+		} catch (error) {
+			attachments = attachments.map((candidate) =>
+				candidate.id === attachment.id ? { ...candidate, status: 'pending' } : candidate
+			);
+			const message = getHumanErrorMessage(error, 'Failed to remove the selected attachment.');
+			errorMessage = message;
+			appendSystemMessage(message);
+		}
 	}
 
 	function getThreadPersistedMessageCount(targetThreadId: string) {
@@ -1869,12 +2194,19 @@
 		};
 	}
 
-	async function submitPrompt(promptOverride = draft, options?: { clearDraft?: boolean }) {
+	async function submitPrompt(
+		promptOverride = draft,
+		options?: { clearDraft?: boolean; attachmentIds?: AttachmentId[] }
+	) {
 		const prompt = promptOverride.trim();
 		const clearDraft = options?.clearDraft ?? true;
 		const currentModelId = selectedModelId ?? resolvedSelectedModelId;
+		const selectedAttachmentIds = options?.attachmentIds ?? composerPendingAttachments.map((attachment) => attachment.id as AttachmentId);
+		const selectedAttachments = attachments.filter((attachment) =>
+			selectedAttachmentIds.includes(attachment.id as AttachmentId)
+		);
 
-		if (!prompt || isStreaming || !currentModelId) {
+		if (!prompt || isStreaming || !currentModelId || isAttachmentWorkPending) {
 			return;
 		}
 
@@ -1901,6 +2233,18 @@
 		const assistantId = createId();
 		const nextUserSequence = getThreadPersistedMessageCount(activeThreadId);
 		const shouldScrollToSubmittedMessage = nextUserSequence > 0;
+		const previousAttachmentState = cloneThreadAttachments(selectedAttachments);
+
+		attachments = attachments.map((attachment) =>
+			selectedAttachmentIds.includes(attachment.id as AttachmentId)
+				? {
+						...attachment,
+						status: 'attached',
+						messageSequence: nextUserSequence,
+						updatedAt: Date.now()
+					}
+				: attachment
+		);
 
 		messages = [
 			...messages,
@@ -1908,6 +2252,9 @@
 				id: userMessageId,
 				role: 'user',
 				content: prompt,
+				attachments: cloneThreadAttachments(
+					attachments.filter((attachment) => attachment.messageSequence === nextUserSequence)
+				),
 				createdAt: Date.now(),
 				persistedSequence: nextUserSequence
 			},
@@ -1939,7 +2286,12 @@
 			const response = await fetch(resolvedAgentApiPath, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ threadId: activeThreadId, prompt, modelId: currentModelId }),
+				body: JSON.stringify({
+					threadId: activeThreadId,
+					prompt,
+					modelId: currentModelId,
+					attachmentIds: selectedAttachmentIds
+				}),
 				signal: controller.signal
 			});
 
@@ -1960,6 +2312,10 @@
 			}
 		} catch (error) {
 			if (controller.signal.aborted) {
+				attachments = attachments.map((attachment) => {
+					const previous = previousAttachmentState.find((candidate) => candidate.id === attachment.id);
+					return previous ? previous : attachment;
+				});
 				updateAssistantMessage(assistantId, (message) => ({
 					...message,
 					pending: false
@@ -1969,6 +2325,10 @@
 
 			const message = getHumanErrorMessage(error, 'The chat request failed.');
 			errorMessage = message;
+			attachments = attachments.map((attachment) => {
+				const previous = previousAttachmentState.find((candidate) => candidate.id === attachment.id);
+				return previous ? previous : attachment;
+			});
 			updateAssistantMessage(assistantId, (current) => ({ ...current, pending: false }));
 			appendSystemMessage(message);
 		} finally {
@@ -2027,7 +2387,10 @@
 			clearConversationUiState();
 			messages = trimmedMessages;
 			threadMessageCache[threadId] = cloneChatMessages(trimmedMessages);
-			await submitPrompt(message.content, { clearDraft: false });
+			await submitPrompt(message.content, {
+				clearDraft: false,
+				attachmentIds: message.attachments.map((attachment) => attachment.id as AttachmentId)
+			});
 		} catch (error) {
 			const retryError = getHumanErrorMessage(
 				error,
@@ -2185,6 +2548,11 @@
 			return;
 		}
 
+		if (event.key === 'Escape' && spotlightAttachment !== null) {
+			closeAttachmentSpotlight();
+			return;
+		}
+
 		if (document.activeElement && document.activeElement !== document.body) {
 			return;
 		}
@@ -2195,12 +2563,144 @@
 
 		composer?.focus();
 	}
+
+	function handleGlobalPaste(event: ClipboardEvent) {
+		if (isStreaming || retryingMessageId !== null || !isModelSelectionReady) {
+			return;
+		}
+
+		const pastedFiles = fileListFromClipboard(event.clipboardData).filter(isImageFile);
+
+		if (pastedFiles.length === 0) {
+			return;
+		}
+
+		event.preventDefault();
+		void uploadAttachments(pastedFiles);
+	}
+
+	function resetChatDropState() {
+		dragDepth = 0;
+		isChatDropActive = false;
+	}
+
+	function handleChatDragEnter(event: DragEvent) {
+		if (isStreaming || retryingMessageId !== null || !isModelSelectionReady) {
+			return;
+		}
+
+		if (!event.dataTransfer?.types.includes('Files')) {
+			return;
+		}
+
+		event.preventDefault();
+		dragDepth += 1;
+		isChatDropActive = true;
+	}
+
+	function handleChatDragOver(event: DragEvent) {
+		if (isStreaming || retryingMessageId !== null || !isModelSelectionReady) {
+			return;
+		}
+
+		if (!event.dataTransfer?.types.includes('Files')) {
+			return;
+		}
+
+		event.preventDefault();
+		event.dataTransfer.dropEffect = 'copy';
+		isChatDropActive = true;
+	}
+
+	function handleChatDragLeave(event: DragEvent) {
+		if (!event.dataTransfer?.types.includes('Files')) {
+			return;
+		}
+
+		event.preventDefault();
+		dragDepth = Math.max(0, dragDepth - 1);
+
+		if (dragDepth === 0) {
+			isChatDropActive = false;
+		}
+	}
+
+	function handleChatDrop(event: DragEvent) {
+		if (!event.dataTransfer?.types.includes('Files')) {
+			return;
+		}
+
+		event.preventDefault();
+		const droppedFiles = fileListFromDataTransfer(event.dataTransfer);
+		resetChatDropState();
+
+		if (droppedFiles.length === 0) {
+			return;
+		}
+
+		void uploadAttachments(droppedFiles);
+	}
 </script>
 
-<svelte:window onkeydown={handleGlobalKeydown} />
+<svelte:window onkeydown={handleGlobalKeydown} onpaste={handleGlobalPaste} />
 
-<div class="flex min-h-0 flex-1 flex-col">
+{#if spotlightAttachment}
+	<div
+		class="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm"
+		role="dialog"
+		tabindex="-1"
+		aria-modal="true"
+		aria-label={`Viewing ${spotlightAttachment.fileName}`}
+	>
+		<button
+			type="button"
+			class="absolute inset-0 cursor-zoom-out"
+			onclick={closeAttachmentSpotlight}
+			aria-label={`Close image view for ${spotlightAttachment.fileName}`}
+		></button>
+
+		<div class="relative z-10 max-h-full max-w-5xl">
+			<button
+				type="button"
+				class="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/70 text-lg text-white transition hover:bg-black/85"
+				onclick={closeAttachmentSpotlight}
+				aria-label={`Close image view for ${spotlightAttachment.fileName}`}
+			>
+				×
+			</button>
+
+			<img
+				src={spotlightAttachment.previewUrl}
+				alt={spotlightAttachment.fileName}
+				class="max-h-[85vh] max-w-[min(92vw,72rem)] rounded-xl border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface))] object-contain shadow-[0_24px_80px_hsl(var(--bc-shadow)/0.5)]"
+			/>
+		</div>
+	</div>
+{/if}
+
+<div
+	class="flex min-h-0 flex-1 flex-col"
+	role="region"
+	aria-label="Chat attachment dropzone"
+	ondragenter={handleChatDragEnter}
+	ondragover={handleChatDragOver}
+	ondragleave={handleChatDragLeave}
+	ondrop={handleChatDrop}
+>
 	<div class="relative min-h-0 flex-1">
+		{#if isChatDropActive}
+			<div class="pointer-events-none absolute inset-0 z-10 rounded-[28px] border-2 border-dashed border-[hsl(var(--bc-success))] bg-[hsl(var(--bc-success)/0.08)] p-6">
+				<div class="flex h-full items-center justify-center rounded-[22px] bg-[hsl(var(--bc-bg))]/80 text-center backdrop-blur-sm">
+					<div class="space-y-2">
+						<p class="text-sm font-medium text-[hsl(var(--bc-success))]">
+							Drop images anywhere to attach them
+						</p>
+						<p class="bc-muted text-xs">PNG, JPG, GIF, WebP, HEIC, and other image types</p>
+					</div>
+				</div>
+			</div>
+		{/if}
+
 		<div
 			bind:this={scrollContainer}
 			class="bc-chatPattern bc-scrollbar absolute inset-0 overflow-y-auto"
@@ -2233,6 +2733,26 @@
 					{#if message.role === 'user'}
 						<div class="chat-message chat-message-user" data-message-id={message.id}>
 							<div class="mb-1 text-xs font-medium text-[hsl(var(--bc-muted))]">You</div>
+							{#if message.attachments.length > 0}
+								<div class="mb-3 flex flex-wrap gap-3">
+									{#each message.attachments as attachment (attachment.id)}
+										<div class="overflow-hidden rounded-2xl border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg-soft))]">
+											<button
+												type="button"
+												class="block"
+												onclick={() => openAttachmentSpotlight(attachment)}
+												aria-label={`View ${attachment.fileName}`}
+											>
+												<img
+													src={attachment.previewUrl}
+													alt={attachment.fileName}
+													class="h-28 w-28 object-cover"
+												/>
+											</button>
+										</div>
+									{/each}
+								</div>
+							{/if}
 							<p class="text-sm leading-6 whitespace-pre-wrap">{message.content}</p>
 							<div class="chat-message-actions">
 								<button
@@ -2616,6 +3136,60 @@
 	</div>
 
 	<div class="chat-input-container">
+		{#if composerAttachments.length > 0}
+			<div class="mb-3 flex flex-wrap gap-3 px-1 py-1">
+				{#each composerAttachments as attachment (attachment.id)}
+					<div class="relative h-24 w-24 overflow-hidden rounded-lg border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface-2))]">
+						<button
+							type="button"
+							class="block h-full w-full text-left"
+							onclick={() => openAttachmentSpotlight(attachment)}
+							aria-label={`View ${attachment.fileName}`}
+						>
+							{#if attachment.previewUrl && !attachmentPreviewErrors.includes(attachment.id)}
+								<img
+									src={attachment.previewUrl}
+									alt={attachment.fileName}
+									class="h-full w-full object-cover"
+									draggable="false"
+									loading="lazy"
+									onload={() => clearAttachmentPreviewError(attachment.id)}
+									onerror={() => markAttachmentPreviewError(attachment.id)}
+								/>
+							{:else}
+								<div class="flex h-full w-full items-end bg-[hsl(var(--bc-surface))] p-2 text-xs font-medium tracking-[0.14em] text-[hsl(var(--bc-fg-muted))]">
+									{getAttachmentExtension(attachment)}
+								</div>
+							{/if}
+						</button>
+
+						<button
+							type="button"
+							class="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/65 text-sm text-white transition hover:bg-black/80 disabled:cursor-default disabled:opacity-45"
+							onclick={() => void removeAttachment(attachment)}
+							disabled={attachment.status !== 'pending'}
+							aria-label={`Remove ${attachment.fileName}`}
+						>
+							×
+						</button>
+
+						{#if attachment.status === 'uploading' || attachment.status === 'removing'}
+							<div class="absolute inset-x-0 bottom-0 bg-black/72 px-2 py-1.5 text-[10px] text-white">
+								<div class="mb-1 flex items-center justify-between gap-2">
+									<span>{getAttachmentStatusLabel(attachment)}...</span>
+								</div>
+								<div class="h-1.5 overflow-hidden rounded-full bg-white/20">
+									<div
+										class="h-full w-1/2 rounded-full bg-white/75 animate-pulse"
+									></div>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/if}
+
 		<div class={`input-wrapper ${isCurrentThreadRunning ? 'input-wrapper-running' : ''}`}>
 			{#if mentionState !== null}
 				<div class="absolute inset-x-0 bottom-full z-40 mb-3">
@@ -2668,6 +3242,15 @@
 				</div>
 			{/if}
 
+			<input
+				bind:this={attachmentPicker}
+				type="file"
+				class="hidden"
+				accept="image/*"
+				multiple
+				onchange={(event) => void uploadAttachments((event.currentTarget as HTMLInputElement).files)}
+			/>
+
 			<textarea
 				bind:this={composer}
 				bind:value={draft}
@@ -2692,7 +3275,7 @@
 					type="button"
 					class="send-btn"
 					onclick={() => void submitPrompt()}
-					disabled={!draft.trim() || retryingMessageId !== null || !isModelSelectionReady}
+					disabled={!draft.trim() || retryingMessageId !== null || !isModelSelectionReady || isAttachmentWorkPending}
 					aria-label="Send message"
 				>
 					<svg
@@ -2757,6 +3340,15 @@
 					</div>
 				{/if}
 			</div>
+
+			<button
+				type="button"
+				class="bc-btn px-3 py-1.5 text-[11px]"
+				disabled={isStreaming || retryingMessageId !== null || !isModelSelectionReady}
+				onclick={openAttachmentPicker}
+			>
+				Add image
+			</button>
 
 			<p class="bc-muted">Shift+Enter · Enter sends</p>
 

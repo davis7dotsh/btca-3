@@ -79,6 +79,24 @@ const normalizeWorkosUser = (
   sealedSession,
 });
 
+const readCookieValue = (cookieHeader: string | null, key: string) => {
+  if (!cookieHeader) {
+    return null;
+  }
+
+  for (const part of cookieHeader.split(";")) {
+    const [rawName, ...rawValue] = part.trim().split("=");
+
+    if (rawName !== key) {
+      continue;
+    }
+
+    return decodeURIComponent(rawValue.join("="));
+  }
+
+  return null;
+};
+
 interface AuthDef {
   getAuthorizationUrl: (options: {
     redirectUri: string;
@@ -102,6 +120,17 @@ interface AuthDef {
     },
     AuthError
   >;
+  validateRequest: (request: Request) => Effect.Effect<
+    {
+      user: ReturnType<typeof mapUser>;
+      userId: string;
+      email: string | null;
+      accessToken: string;
+      sessionId: string;
+      sealedSession?: string;
+    },
+    AuthError
+  >;
   getLogoutUrl: (event: RequestEvent, returnTo: string) => Effect.Effect<string, AuthError>;
 }
 
@@ -111,62 +140,10 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
       clientId: getClientId(),
     });
 
-    const getAuthorizationUrl: AuthDef["getAuthorizationUrl"] = ({ redirectUri, returnTo }) =>
-      Effect.try({
-        try: () =>
-          workos.userManagement.getAuthorizationUrl({
-            provider: "authkit",
-            redirectUri,
-            clientId: getClientId(),
-            state: returnTo,
-          }),
-        catch: (cause) =>
-          createAuthError({
-            message: "Failed to generate the login URL.",
-            kind: "authorization_url_error",
-            cause,
-          }),
-      });
-
-    const authenticateWithCode: AuthDef["authenticateWithCode"] = ({ code }) =>
-      Effect.gen(function* () {
-        const authentication = yield* Effect.tryPromise({
-          try: () =>
-            workos.userManagement.authenticateWithCode({
-              clientId: getClientId(),
-              code,
-              session: {
-                sealSession: true,
-                cookiePassword: getCookiePassword(),
-              },
-            }),
-          catch: (cause) =>
-            createAuthError({
-              message: "Failed to authenticate the login callback.",
-              kind: "callback_authentication_error",
-              cause,
-            }),
-        });
-
-        if (!authentication.sealedSession) {
-          return yield* Effect.fail(
-            createAuthError({
-              message: "WorkOS did not return a sealed session",
-              kind: "missing_sealed_session",
-            }),
-          );
-        }
-
-        return {
-          sealedSession: authentication.sealedSession,
-          user: mapUser(authentication.user),
-        };
-      });
-
-    const validateSession: AuthDef["validateSession"] = (event) =>
+    const validateSealedSession = (sessionData: string) =>
       Effect.gen(function* () {
         const session = workos.userManagement.loadSealedSession({
-          sessionData: event.cookies.get(AUTH_SESSION_COOKIE_NAME) ?? "",
+          sessionData,
           cookiePassword: getCookiePassword(),
         });
         const authentication = yield* Effect.tryPromise({
@@ -232,6 +209,66 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
         );
       });
 
+    const getAuthorizationUrl: AuthDef["getAuthorizationUrl"] = ({ redirectUri, returnTo }) =>
+      Effect.try({
+        try: () =>
+          workos.userManagement.getAuthorizationUrl({
+            provider: "authkit",
+            redirectUri,
+            clientId: getClientId(),
+            state: returnTo,
+          }),
+        catch: (cause) =>
+          createAuthError({
+            message: "Failed to generate the login URL.",
+            kind: "authorization_url_error",
+            cause,
+          }),
+      });
+
+    const authenticateWithCode: AuthDef["authenticateWithCode"] = ({ code }) =>
+      Effect.gen(function* () {
+        const authentication = yield* Effect.tryPromise({
+          try: () =>
+            workos.userManagement.authenticateWithCode({
+              clientId: getClientId(),
+              code,
+              session: {
+                sealSession: true,
+                cookiePassword: getCookiePassword(),
+              },
+            }),
+          catch: (cause) =>
+            createAuthError({
+              message: "Failed to authenticate the login callback.",
+              kind: "callback_authentication_error",
+              cause,
+            }),
+        });
+
+        if (!authentication.sealedSession) {
+          return yield* Effect.fail(
+            createAuthError({
+              message: "WorkOS did not return a sealed session",
+              kind: "missing_sealed_session",
+            }),
+          );
+        }
+
+        return {
+          sealedSession: authentication.sealedSession,
+          user: mapUser(authentication.user),
+        };
+      });
+
+    const validateSession: AuthDef["validateSession"] = (event) =>
+      validateSealedSession(event.cookies.get(AUTH_SESSION_COOKIE_NAME) ?? "");
+
+    const validateRequest: AuthDef["validateRequest"] = (request) =>
+      validateSealedSession(
+        readCookieValue(request.headers.get("cookie"), AUTH_SESSION_COOKIE_NAME) ?? "",
+      );
+
     const getLogoutUrl: AuthDef["getLogoutUrl"] = (event, returnTo) =>
       Effect.gen(function* () {
         const session = workos.userManagement.loadSealedSession({
@@ -254,6 +291,7 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
       getAuthorizationUrl,
       authenticateWithCode,
       validateSession,
+      validateRequest,
       getLogoutUrl,
     };
   });

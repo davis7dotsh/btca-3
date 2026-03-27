@@ -6,8 +6,15 @@ import {
   type AgentMessage,
   type AgentTool,
 } from "@mariozechner/pi-agent-core";
-import { getEnvApiKey, type Api, type Message, type Model } from "@mariozechner/pi-ai";
+import {
+  getEnvApiKey,
+  type Api,
+  type ImageContent,
+  type Message,
+  type Model,
+} from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
+import type { Id } from "@btca/convex/data-model";
 import { Cause, Data, Effect, Layer, ServiceMap } from "effect";
 import { api } from "@btca/convex/api";
 import {
@@ -27,6 +34,7 @@ import type {
   SandboxExecuteCommandResult,
   SandboxReadFileResult,
   StoredAgentThreadContext,
+  StoredAgentThreadAttachment,
   StoredAgentThreadMessage,
 } from "$lib/types/agent";
 import { isPersistableAgentMessage } from "$lib/types/agent";
@@ -336,6 +344,81 @@ const buildSystemPrompt = (
   taggedResources: readonly TaggedResourcePromptResource[],
 ) => `${buildBasePrompt(workspaceDir)}\n\n${buildTaggedResourcesXml(taggedResources)}`;
 
+const toPersistedMessage = (message: Message): Message => {
+  if (message.role !== "user" || typeof message.content === "string") {
+    return message;
+  }
+
+  return {
+    ...message,
+    content: message.content.filter((part) => part.type !== "image"),
+  };
+};
+
+const mergeMessageAttachments = (
+  storedMessages: readonly StoredAgentThreadMessage[],
+  parsedMessages: readonly Message[],
+  attachmentsBySequence: ReadonlyMap<number, readonly ImageContent[]>,
+) => {
+  return parsedMessages.map((message, index) => {
+    const storedMessage = storedMessages[index];
+
+    if (!storedMessage || message.role !== "user") {
+      return message;
+    }
+
+    const messageAttachments = attachmentsBySequence.get(storedMessage.sequence) ?? [];
+
+    if (messageAttachments.length === 0) {
+      return message;
+    }
+
+    const imageParts = [...messageAttachments];
+
+    if (typeof message.content === "string") {
+      return {
+        ...message,
+        content: [{ type: "text" as const, text: message.content }, ...imageParts],
+      };
+    }
+
+    return {
+      ...message,
+      content: [...message.content, ...imageParts],
+    };
+  });
+};
+
+const fetchAttachmentContent = (
+  attachment: Pick<StoredAgentThreadAttachment, "ufsUrl" | "mimeType">,
+) =>
+  Effect.tryPromise({
+    try: async () => {
+      const response = await fetch(attachment.ufsUrl);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch attachment: ${response.status}`);
+      }
+
+      const bytes = await response.arrayBuffer();
+
+      return {
+        type: "image" as const,
+        data: Buffer.from(bytes).toString("base64"),
+        mimeType: attachment.mimeType,
+      } satisfies ImageContent;
+    },
+    catch: (cause) =>
+      new AgentError({
+        message: "Failed to fetch an uploaded attachment.",
+        kind: "agent_attachment_fetch_error",
+        traceId: crypto.randomUUID(),
+        timestamp: Date.now(),
+        operation: "promptThread",
+        cause,
+      }),
+  });
+
 const parsePersistedMessage = (
   threadId: string,
   message: StoredAgentThreadMessage,
@@ -387,8 +470,8 @@ const serializePersistedMessage = (
         timestamp: message.timestamp,
         rawJson: JSON.stringify(
           options?.runMetrics && message.role === "assistant"
-            ? { ...message, runMetrics: options.runMetrics }
-            : message,
+            ? { ...toPersistedMessage(message), runMetrics: options.runMetrics }
+            : toPersistedMessage(message),
         ),
       };
     },
@@ -644,6 +727,35 @@ const createPromptThread =
           },
         });
 
+        const loadMessageAttachmentContent = (
+          attachments: readonly StoredAgentThreadAttachment[],
+        ) =>
+          Effect.gen(function* () {
+            const resolvedAttachments = yield* Effect.all(
+              attachments.flatMap((attachment) =>
+                attachment.messageSequence === null
+                  ? []
+                  : [
+                      fetchAttachmentContent(attachment).pipe(
+                        Effect.map((content) => ({
+                          sequence: attachment.messageSequence as number,
+                          content,
+                        })),
+                      ),
+                    ],
+              ),
+            );
+            const attachmentsBySequence = new Map<number, ImageContent[]>();
+
+            for (const attachment of resolvedAttachments) {
+              const current = attachmentsBySequence.get(attachment.sequence) ?? [];
+              current.push(attachment.content);
+              attachmentsBySequence.set(attachment.sequence, current);
+            }
+
+            return attachmentsBySequence;
+          });
+
         const taggedResourceSlugs = extractTaggedResourceSlugs(input.prompt);
         const persistedThread: StoredAgentThreadContext | null = yield* convex.query({
           func: api.private.agentThreads.getThreadContext,
@@ -652,13 +764,42 @@ const createPromptThread =
             userId: input.userId,
           },
         });
-        const persistedMessages =
+        const parsedPersistedMessages =
           persistedThread === null
             ? []
             : yield* Effect.all(
                 persistedThread.messages.map((message: StoredAgentThreadMessage) =>
                   parsePersistedMessage(input.threadId, message),
                 ),
+              );
+        const persistedAttachmentContent =
+          persistedThread === null
+            ? new Map<number, ImageContent[]>()
+            : yield* loadMessageAttachmentContent(persistedThread.attachments);
+        const persistedMessages =
+          persistedThread === null
+            ? []
+            : mergeMessageAttachments(
+                persistedThread.messages,
+                parsedPersistedMessages,
+                persistedAttachmentContent,
+              );
+        const promptAttachments =
+          input.attachmentIds && input.attachmentIds.length > 0
+            ? yield* convex.query({
+                func: api.private.agentThreads.resolvePromptAttachments,
+                args: {
+                  threadId: input.threadId,
+                  userId: input.userId,
+                  attachmentIds: input.attachmentIds as Id<"agentThreadAttachments">[],
+                },
+              })
+            : [];
+        const promptAttachmentContent =
+          promptAttachments.length === 0
+            ? []
+            : yield* Effect.all(
+                promptAttachments.map((attachment) => fetchAttachmentContent(attachment)),
               );
         const taggedResources: TaggedResourcePromptResource[] =
           taggedResourceSlugs.length === 0
@@ -752,7 +893,10 @@ const createPromptThread =
         const messages: AgentMessage[] = [
           {
             role: "user",
-            content: input.prompt,
+            content:
+              promptAttachmentContent.length === 0
+                ? input.prompt
+                : [{ type: "text" as const, text: input.prompt }, ...promptAttachmentContent],
             timestamp: Date.now(),
           },
         ];
@@ -898,6 +1042,10 @@ const createPromptThread =
                         completedAt: Date.now(),
                         promptPreview,
                         messages: storedMessages,
+                        attachmentIds:
+                          input.attachmentIds && input.attachmentIds.length > 0
+                            ? (input.attachmentIds as Id<"agentThreadAttachments">[])
+                            : undefined,
                       },
                     }),
                   );

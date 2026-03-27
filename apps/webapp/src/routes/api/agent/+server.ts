@@ -32,6 +32,7 @@ const PromptThreadAgentRequestInputSchema = Schema.Struct({
   threadId: Schema.NonEmptyString,
   prompt: Schema.NonEmptyString,
   modelId: Schema.optional(Schema.NonEmptyString),
+  attachmentIds: Schema.optional(Schema.Array(Schema.NonEmptyString)),
 });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

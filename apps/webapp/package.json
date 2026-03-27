@@ -23,6 +23,7 @@
     "@sinclair/typebox": "^0.34.48",
     "@tmcp/adapter-zod": "^0.1.7",
     "@tmcp/transport-http": "^0.8.5",
+    "@uploadthing/svelte": "catalog:",
     "@upstash/box": "^0.1.28",
     "@workos-inc/node": "^8.9.0",
     "ai": "^6.0.134",
@@ -36,6 +37,7 @@
     "marked": "^17.0.5",
     "shiki": "^4.0.2",
     "tmcp": "^1.19.3",
+    "uploadthing": "catalog:",
     "yaml": "catalog:",
     "zod": "^4.3.6"
   },
