@@ -173,6 +173,7 @@
 		providerModelId: string | null;
 		api: string | null;
 		provider: string | null;
+		generationStartedAt: number | null;
 		completedUsage: Usage | null;
 		liveUsage: Usage | null;
 		billedCostUsd: number;
@@ -388,6 +389,7 @@
 		providerModelId: model?.modelId ?? null,
 		api: model?.api ?? null,
 		provider: model?.provider ?? null,
+		generationStartedAt: null,
 		completedUsage: null,
 		liveUsage: null,
 		billedCostUsd: 0,
@@ -434,14 +436,14 @@
 		return message.stats.toolCallDurationMs + liveToolDurationMs;
 	};
 	const getAssistantDurationMs = (message: AssistantMessage) => {
+		const startedAt = message.stats.generationStartedAt ?? message.createdAt;
 		const completedAt = message.pending ? Date.now() : message.stats.completedAt;
 
-		if (!completedAt || completedAt <= message.createdAt) {
+		if (!completedAt || completedAt <= startedAt) {
 			return null;
 		}
 
-		const activeGenerationDurationMs =
-			completedAt - message.createdAt - getAssistantToolDurationMs(message);
+		const activeGenerationDurationMs = completedAt - startedAt - getAssistantToolDurationMs(message);
 
 		if (activeGenerationDurationMs <= 0) {
 			return null;
@@ -902,6 +904,8 @@
 					providerModelId: parsedMessage.model,
 					api: parsedMessage.api,
 					provider: parsedMessage.provider,
+					generationStartedAt:
+						assistantMessage.stats.generationStartedAt ?? parsedMessage.timestamp,
 					completedUsage: addUsage(assistantMessage.stats.completedUsage, parsedMessage.usage),
 					liveUsage: null,
 					billedCostUsd: addUsd(
@@ -2002,20 +2006,31 @@
 					model: streamEvent.model,
 					providerModelId: streamEvent.model.modelId,
 					api: streamEvent.model.api,
-					provider: streamEvent.model.provider
+					provider: streamEvent.model.provider,
+					generationStartedAt: stats.generationStartedAt ?? streamEvent.timestamp
 				}));
 				return;
 			case 'assistant_text_delta':
 				if (streamEvent.usage) {
 					updateAssistantStats(assistantId, (stats) => ({
 						...stats,
+						generationStartedAt: stats.generationStartedAt ?? streamEvent.timestamp,
 						liveUsage: cloneUsage(streamEvent.usage)
+					}));
+				} else {
+					updateAssistantStats(assistantId, (stats) => ({
+						...stats,
+						generationStartedAt: stats.generationStartedAt ?? streamEvent.timestamp
 					}));
 				}
 
 				appendAssistantText(assistantId, streamEvent.delta);
 				return;
 			case 'reasoning_start':
+				updateAssistantStats(assistantId, (stats) => ({
+					...stats,
+					generationStartedAt: stats.generationStartedAt ?? streamEvent.timestamp
+				}));
 				upsertReasoningPart(assistantId, (part) => ({
 					id: part?.id ?? createId(),
 					type: 'reasoning',
@@ -2026,6 +2041,10 @@
 				}));
 				return;
 			case 'reasoning_delta':
+				updateAssistantStats(assistantId, (stats) => ({
+					...stats,
+					generationStartedAt: stats.generationStartedAt ?? streamEvent.timestamp
+				}));
 				upsertReasoningPart(assistantId, (part) => ({
 					id: part?.id ?? createId(),
 					type: 'reasoning',
@@ -2051,6 +2070,7 @@
 					providerModelId: streamEvent.model,
 					api: streamEvent.api,
 					provider: streamEvent.provider,
+					generationStartedAt: stats.generationStartedAt ?? streamEvent.timestamp,
 					model:
 						findAgentModelOptionForProviderModel({
 							api: streamEvent.api,

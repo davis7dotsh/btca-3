@@ -17,7 +17,7 @@ class AgentRunStreamRequestError extends Data.TaggedError("AgentRunStreamRequest
 }> {}
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
-const FALLBACK_REPLAY_INTERVAL_MS = 5_000;
+const FALLBACK_REPLAY_INTERVAL_MS = 15_000;
 
 const encoder = new TextEncoder();
 
@@ -80,6 +80,7 @@ export const GET: RequestHandler = async (event) => {
         let closed = false;
         let isFlushing = false;
         let flushRequested = false;
+        let subscriberHealthy = true;
         let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
         let replayTimer: ReturnType<typeof setInterval> | null = null;
         let subscriber: ReturnType<typeof createRunSubscriber> | null = null;
@@ -124,6 +125,23 @@ export const GET: RequestHandler = async (event) => {
           } catch {
             // The request may have aborted and closed the controller already.
           }
+        };
+
+        const stopFallbackReplay = () => {
+          if (replayTimer) {
+            clearInterval(replayTimer);
+            replayTimer = null;
+          }
+        };
+
+        const startFallbackReplay = () => {
+          if (closed || replayTimer) {
+            return;
+          }
+
+          replayTimer = setInterval(() => {
+            void flush();
+          }, FALLBACK_REPLAY_INTERVAL_MS);
         };
 
         const enqueueEntries = (entries: readonly RunStreamEventRecord[]) => {
@@ -214,12 +232,14 @@ export const GET: RequestHandler = async (event) => {
             enqueueChunk(encodeComment("keep-alive"));
           }
         }, HEARTBEAT_INTERVAL_MS);
-        replayTimer = setInterval(() => {
-          void flush();
-        }, FALLBACK_REPLAY_INTERVAL_MS);
 
         subscriber = createRunSubscriber(runId);
         subscriber.on("message", () => {
+          if (!subscriberHealthy) {
+            subscriberHealthy = true;
+            stopFallbackReplay();
+          }
+
           void flush();
         });
         subscriber.on("error", (cause) => {
@@ -227,6 +247,9 @@ export const GET: RequestHandler = async (event) => {
             runId,
             error: cause instanceof Error ? cause.message : String(cause),
           });
+
+          subscriberHealthy = false;
+          startFallbackReplay();
           void flush();
         });
 

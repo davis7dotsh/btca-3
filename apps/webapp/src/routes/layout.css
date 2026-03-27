@@ -478,9 +478,11 @@
   }
 
   .bc-threadItem {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
+    display: block;
+  }
+
+  .bc-threadItemLink {
+    display: block;
     padding: 10px 12px;
     border: 1px solid transparent;
     background: transparent;
@@ -490,18 +492,18 @@
       box-shadow 120ms ease;
   }
 
-  .bc-threadItem:hover {
+  .bc-threadItem:hover .bc-threadItemLink {
     border-color: color-mix(in oklab, hsl(var(--bc-fg)) 12%, hsl(var(--bc-border)));
     background: color-mix(in oklab, hsl(var(--bc-surface-2)) 82%, transparent);
   }
 
-  .bc-threadItem-active {
+  .bc-threadItem-active .bc-threadItemLink {
     border-color: color-mix(in oklab, hsl(var(--bc-accent)) 45%, hsl(var(--bc-border)));
     background: hsl(var(--bc-surface));
     box-shadow: inset 0 0 0 1px color-mix(in oklab, hsl(var(--bc-accent)) 22%, transparent);
   }
 
-  .bc-threadItem-active:hover {
+  .bc-threadItem-active:hover .bc-threadItemLink {
     border-color: color-mix(in oklab, hsl(var(--bc-accent)) 55%, hsl(var(--bc-border)));
     background: hsl(var(--bc-surface));
   }

@@ -23,6 +23,12 @@ const PromptThreadAgentRequestInputSchema = Schema.Struct({
   attachmentIds: Schema.optional(Schema.Array(Schema.NonEmptyString)),
 });
 
+const DELTA_FLUSH_INTERVAL_MS = 150;
+type AssistantTextDeltaUsage = Extract<
+  AgentPromptStreamEvent,
+  { type: "assistant_text_delta" }
+>["usage"];
+
 const appendRunErrorEvent = ({
   runId,
   threadId,
@@ -107,22 +113,139 @@ const executeAgentRun = ({
 
     yield* Effect.tryPromise({
       try: async () => {
+        let pendingAssistantDelta = "";
+        let pendingAssistantUsage: AssistantTextDeltaUsage = null;
+        let pendingAssistantTimestamp: number | null = null;
+        let pendingReasoningDelta = "";
+        let pendingReasoningTimestamp: number | null = null;
+        let pendingFlushTimer: ReturnType<typeof setTimeout> | null = null;
+        let pendingFlushPromise: Promise<void> | null = null;
+        let pendingFlushError: unknown = null;
+
+        const flushPendingDeltas = async () => {
+          if (pendingFlushTimer) {
+            clearTimeout(pendingFlushTimer);
+            pendingFlushTimer = null;
+          }
+
+          if (pendingFlushPromise) {
+            return pendingFlushPromise;
+          }
+
+          const batchedEvents: AgentPromptStreamEvent[] = [];
+
+          if (pendingReasoningDelta.length > 0 && pendingReasoningTimestamp !== null) {
+            batchedEvents.push({
+              type: "reasoning_delta",
+              delta: pendingReasoningDelta,
+              timestamp: pendingReasoningTimestamp,
+            });
+          }
+
+          if (pendingAssistantDelta.length > 0 && pendingAssistantTimestamp !== null) {
+            batchedEvents.push({
+              type: "assistant_text_delta",
+              delta: pendingAssistantDelta,
+              usage: pendingAssistantUsage,
+              timestamp: pendingAssistantTimestamp,
+            });
+          }
+
+          pendingReasoningDelta = "";
+          pendingReasoningTimestamp = null;
+          pendingAssistantDelta = "";
+          pendingAssistantUsage = null;
+          pendingAssistantTimestamp = null;
+
+          if (batchedEvents.length === 0) {
+            return;
+          }
+
+          pendingFlushPromise = runtime
+            .runPromise(
+              Effect.gen(function* () {
+                const backgroundRunStream = yield* RunStreamService;
+                yield* backgroundRunStream.appendEvents({
+                  runId,
+                  events: batchedEvents,
+                });
+              }),
+            )
+            .catch((cause) => {
+              pendingFlushError = cause;
+              throw cause;
+            })
+            .finally(() => {
+              pendingFlushPromise = null;
+            });
+
+          return pendingFlushPromise;
+        };
+
+        const schedulePendingFlush = () => {
+          if (pendingFlushTimer || pendingFlushPromise) {
+            return;
+          }
+
+          pendingFlushTimer = setTimeout(() => {
+            void flushPendingDeltas().catch(() => undefined);
+          }, DELTA_FLUSH_INTERVAL_MS);
+        };
+
+        const appendImmediateEvents = async (events: readonly AgentPromptStreamEvent[]) => {
+          if (events.length === 0) {
+            return;
+          }
+
+          await flushPendingDeltas();
+          await runtime.runPromise(
+            Effect.gen(function* () {
+              const backgroundRunStream = yield* RunStreamService;
+              yield* backgroundRunStream.appendEvents({
+                runId,
+                events,
+              });
+            }),
+          );
+        };
+
         try {
           for await (const agentEvent of execution.events) {
+            if (pendingFlushError) {
+              throw pendingFlushError;
+            }
+
             const normalizedEvents = normalizeAgentEvent(agentEvent);
 
+            const immediateEvents: AgentPromptStreamEvent[] = [];
+
             for (const normalizedEvent of normalizedEvents) {
-              await runtime.runPromise(
-                Effect.gen(function* () {
-                  const backgroundRunStream = yield* RunStreamService;
-                  yield* backgroundRunStream.appendEvent({
-                    runId,
-                    event: normalizedEvent,
-                  });
-                }),
-              );
+              if (normalizedEvent.type === "assistant_text_delta") {
+                pendingAssistantDelta += normalizedEvent.delta;
+                pendingAssistantUsage = normalizedEvent.usage;
+                pendingAssistantTimestamp = normalizedEvent.timestamp;
+                schedulePendingFlush();
+                continue;
+              }
+
+              if (normalizedEvent.type === "reasoning_delta") {
+                pendingReasoningDelta += normalizedEvent.delta;
+                pendingReasoningTimestamp = normalizedEvent.timestamp;
+                schedulePendingFlush();
+                continue;
+              }
+
+              immediateEvents.push(normalizedEvent);
             }
+
+            await appendImmediateEvents(immediateEvents);
           }
+
+          if (pendingFlushError) {
+            throw pendingFlushError;
+          }
+
+          await flushPendingDeltas();
 
           await runtime.runPromise(
             Effect.gen(function* () {
@@ -134,6 +257,11 @@ const executeAgentRun = ({
             }),
           );
         } catch (cause) {
+          if (pendingFlushTimer) {
+            clearTimeout(pendingFlushTimer);
+            pendingFlushTimer = null;
+          }
+
           const message = cause instanceof Error ? cause.message : "The agent run failed.";
 
           await runtime.runPromise(

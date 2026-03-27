@@ -213,13 +213,13 @@
 			{#each threadItems as thread (thread.threadId)}
 				<div
 					class={[
-						'bc-threadItem group',
+						'bc-threadItem group relative',
 						isOnAnyChat && thread.threadId === visibleCurrentThreadId && 'bc-threadItem-active'
 					]}
 				>
 					<a
 						href={getThreadPath(thread.threadId)}
-						class="min-w-0 flex-1 text-left"
+						class="bc-threadItemLink min-h-full min-w-0 flex-1 self-stretch pr-10 text-left"
 						onclick={() => openThread(thread.threadId)}
 					>
 						<div class="truncate text-sm font-medium text-[hsl(var(--bc-fg))]">
@@ -246,7 +246,7 @@
 						</div>
 					</a>
 
-					<div class="relative shrink-0">
+					<div class="absolute top-2 right-2 z-10 shrink-0">
 						<button
 							type="button"
 							class="bc-threadItemDelete"

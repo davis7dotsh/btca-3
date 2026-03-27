@@ -11,6 +11,7 @@ type RunStreamOperation =
   | "getActiveRunForThread"
   | "markRunning"
   | "appendEvent"
+  | "appendEvents"
   | "markCompleted"
   | "markFailed"
   | "scheduleExpiry"
@@ -79,6 +80,11 @@ export interface RunStreamDef {
     readonly event: AgentPromptStreamEvent;
     readonly publish?: boolean;
   }) => Effect.Effect<string, RunStreamServiceError>;
+  appendEvents: (input: {
+    readonly runId: string;
+    readonly events: readonly AgentPromptStreamEvent[];
+    readonly publish?: boolean;
+  }) => Effect.Effect<readonly string[], RunStreamServiceError>;
   markCompleted: (input: {
     readonly runId: string;
     readonly threadId: string;
@@ -259,6 +265,9 @@ const parseReplayEntries = (entries: Record<string, { event?: unknown; terminal?
     })
     .sort((left, right) => compareStreamIds(left.id, right.id));
 
+const isTerminalEvent = (event: AgentPromptStreamEvent) =>
+  event.type === "done" || event.type === "run_error";
+
 export class RunStreamService extends ServiceMap.Service<RunStreamService, RunStreamDef>()(
   "RunStreamService",
 ) {
@@ -392,39 +401,54 @@ export class RunStreamService extends ServiceMap.Service<RunStreamService, RunSt
       });
 
     const appendEvent: RunStreamDef["appendEvent"] = (input) =>
+      appendEvents({
+        runId: input.runId,
+        events: [input.event],
+        publish: input.publish,
+      }).pipe(Effect.map(([eventId]) => eventId));
+
+    const appendEvents: RunStreamDef["appendEvents"] = (input) =>
       Effect.tryPromise({
         try: async () => {
+          if (input.events.length === 0) {
+            return [];
+          }
+
           const eventsKey = toEventsKey(input.runId);
-          const eventId = await redis.xadd(eventsKey, "*", {
-            event: JSON.stringify(input.event),
-            type: input.event.type,
-            timestamp: input.event.timestamp,
-            terminal: input.event.type === "done" || input.event.type === "run_error" ? "1" : "0",
-          });
           const pipeline = redis.pipeline();
 
-          pipeline.hset(toMetaKey(input.runId), {
-            lastEventId: eventId,
-          });
-          pipeline.expire(eventsKey, ACTIVE_RUN_TTL_SECONDS);
-          pipeline.expire(toMetaKey(input.runId), ACTIVE_RUN_TTL_SECONDS);
-
-          if (input.publish !== false) {
-            pipeline.publish(toRunChannel(input.runId), {
-              runId: input.runId,
-              eventId,
+          for (const event of input.events) {
+            pipeline.xadd(eventsKey, "*", {
+              event: JSON.stringify(event),
+              type: event.type,
+              timestamp: event.timestamp,
+              terminal: isTerminalEvent(event) ? "1" : "0",
             });
           }
 
-          await pipeline.exec();
-          return eventId;
+          const eventIds = await pipeline.exec<string[]>();
+
+          const lastEventId = eventIds.at(-1);
+
+          if (input.publish !== false && lastEventId) {
+            const publishPipeline = redis.pipeline();
+
+            publishPipeline.publish(toRunChannel(input.runId), {
+              runId: input.runId,
+              eventId: lastEventId,
+            });
+
+            await publishPipeline.exec();
+          }
+
+          return eventIds;
         },
         catch: (cause) =>
           toRunStreamServiceError({
             cause,
-            operation: "appendEvent",
+            operation: "appendEvents",
             kind: "run_stream_append_error",
-            message: `Failed to append event to run ${input.runId}`,
+            message: `Failed to append events to run ${input.runId}`,
           }),
       });
 
@@ -509,6 +533,7 @@ export class RunStreamService extends ServiceMap.Service<RunStreamService, RunSt
       getActiveRunForThread,
       markRunning,
       appendEvent,
+      appendEvents,
       markCompleted,
       markFailed,
       replayAfter,
