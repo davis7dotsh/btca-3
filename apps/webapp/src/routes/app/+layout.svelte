@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Bot, Menu } from '@lucide/svelte';
 	import ConvexWrapper from '$lib/wrappers/ConvexWrapper.svelte';
+	import AppShellLoader from '$lib/components/AppShellLoader.svelte';
 	import AppSidebar from '$lib/components/AppSidebar.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import { resolve } from '$app/paths';
@@ -116,9 +117,5 @@
 		{/if}
 	</ConvexWrapper>
 {:else}
-	<div
-		class="flex min-h-screen items-center justify-center bg-[hsl(var(--bc-bg))] text-sm text-[hsl(var(--bc-fg-muted))]"
-	>
-		Loading...
-	</div>
+	<AppShellLoader />
 {/if}

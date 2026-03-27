@@ -2961,40 +2961,6 @@
 
 <svelte:window onkeydown={handleGlobalKeydown} onpaste={handleGlobalPaste} />
 
-{#if spotlightAttachment}
-	<div
-		class="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm"
-		role="dialog"
-		tabindex="-1"
-		aria-modal="true"
-		aria-label={`Viewing ${spotlightAttachment.fileName}`}
-	>
-		<button
-			type="button"
-			class="absolute inset-0 cursor-zoom-out"
-			onclick={closeAttachmentSpotlight}
-			aria-label={`Close image view for ${spotlightAttachment.fileName}`}
-		></button>
-
-		<div class="relative z-10 max-h-full max-w-5xl">
-			<button
-				type="button"
-				class="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/70 text-lg text-white transition hover:bg-black/85"
-				onclick={closeAttachmentSpotlight}
-				aria-label={`Close image view for ${spotlightAttachment.fileName}`}
-			>
-				×
-			</button>
-
-			<img
-				src={spotlightAttachment.previewUrl}
-				alt={spotlightAttachment.fileName}
-				class="max-h-[85vh] max-w-[min(92vw,72rem)] rounded-xl border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface))] object-contain shadow-[0_24px_80px_hsl(var(--bc-shadow)/0.5)]"
-			/>
-		</div>
-	</div>
-{/if}
-
 <div
 	class="flex min-h-0 flex-1 flex-col"
 	role="region"
@@ -3005,6 +2971,40 @@
 	ondrop={handleChatDrop}
 >
 	<div class="relative min-h-0 flex-1">
+		{#if spotlightAttachment}
+			<div
+				class="absolute inset-0 z-[70] flex items-center justify-center overflow-hidden bg-black/80 p-4 backdrop-blur-sm sm:p-6"
+				role="dialog"
+				tabindex="-1"
+				aria-modal="true"
+				aria-label={`Viewing ${spotlightAttachment.fileName}`}
+			>
+				<button
+					type="button"
+					class="absolute inset-0 cursor-zoom-out"
+					onclick={closeAttachmentSpotlight}
+					aria-label={`Close image view for ${spotlightAttachment.fileName}`}
+				></button>
+
+				<div class="relative z-10 flex max-h-full w-full max-w-5xl items-center justify-center">
+					<button
+						type="button"
+						class="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/70 text-lg text-white transition hover:bg-black/85"
+						onclick={closeAttachmentSpotlight}
+						aria-label={`Close image view for ${spotlightAttachment.fileName}`}
+					>
+						×
+					</button>
+
+					<img
+						src={spotlightAttachment.previewUrl}
+						alt={spotlightAttachment.fileName}
+						class="block max-h-full max-w-full rounded-xl border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface))] object-contain shadow-[0_24px_80px_hsl(var(--bc-shadow)/0.5)]"
+					/>
+				</div>
+			</div>
+		{/if}
+
 		{#if isChatDropActive}
 			<div class="pointer-events-none absolute inset-0 z-10 rounded-[28px] border-2 border-dashed border-[hsl(var(--bc-success))] bg-[hsl(var(--bc-success)/0.08)] p-6">
 				<div class="flex h-full items-center justify-center rounded-[22px] bg-[hsl(var(--bc-bg))]/80 text-center backdrop-blur-sm">
