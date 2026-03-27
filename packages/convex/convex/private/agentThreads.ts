@@ -10,6 +10,7 @@ const storedMessageValidator = v.object({
 });
 
 const threadStatusValidator = v.union(v.literal("idle"), v.literal("running"), v.literal("error"));
+
 export const getThreadContext = privateQuery({
   args: {
     threadId: v.string(),

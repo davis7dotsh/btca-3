@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -10,8 +11,14 @@
 	import { resourceItemKinds, type ResourceItemKind } from '$lib/types/resources';
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 
+	type QueryState<T> = {
+		data: T | undefined;
+		isLoading: boolean;
+		error: unknown;
+	};
+
 	const authContext = getAuthContext();
-	const convex = useConvexClient();
+	const convex = browser ? useConvexClient() : null;
 
 	type ItemDraft = {
 		kind: ResourceItemKind;
@@ -53,11 +60,30 @@
 	let newItemPackageName = $state('');
 	let isCreatingItem = $state(false);
 
-	const resourceQuery = useQuery(
-		api.authed.resources.get,
-		() => (authContext.currentUser && resourceId ? { resourceId } : 'skip'),
-		() => ({ keepPreviousData: true })
-	);
+	const resourceQuery: QueryState<
+		| {
+				resource: {
+					id: string;
+					name: string;
+					slug: string;
+					notes: string | null;
+					createdAt: number;
+					updatedAt: number;
+				};
+				items: ResourceItemView[];
+		  }
+		| null
+	> = browser
+		? useQuery(
+				api.authed.resources.get,
+				() => (authContext.currentUser && resourceId ? { resourceId } : 'skip'),
+				() => ({ keepPreviousData: true })
+			)
+		: {
+				data: undefined,
+				isLoading: false,
+				error: null
+			};
 
 	const items = $derived(resourceQuery.data?.items ?? []);
 
@@ -109,7 +135,7 @@
 	}
 
 	async function saveResource() {
-		if (!resourceId || isSavingResource) {
+		if (!resourceId || isSavingResource || !convex) {
 			return;
 		}
 
@@ -131,7 +157,7 @@
 	}
 
 	async function deleteResource() {
-		if (!resourceId || isDeletingResource) {
+		if (!resourceId || isDeletingResource || !convex) {
 			return;
 		}
 
@@ -153,7 +179,7 @@
 	}
 
 	async function createItem() {
-		if (!resourceId || isCreatingItem) {
+		if (!resourceId || isCreatingItem || !convex) {
 			return;
 		}
 
@@ -181,7 +207,7 @@
 	async function saveItem(itemId: string) {
 		const draft = itemDrafts[itemId];
 
-		if (!draft || activeItemMutationId !== null) {
+		if (!draft || activeItemMutationId !== null || !convex) {
 			return;
 		}
 
@@ -207,7 +233,7 @@
 	}
 
 	async function deleteItem(itemId: string) {
-		if (activeItemMutationId !== null) {
+		if (activeItemMutationId !== null || !convex) {
 			return;
 		}
 
@@ -230,7 +256,7 @@
 	}
 
 	async function moveItem(itemId: string, direction: -1 | 1) {
-		if (!resourceId || activeItemMutationId !== null) {
+		if (!resourceId || activeItemMutationId !== null || !convex) {
 			return;
 		}
 

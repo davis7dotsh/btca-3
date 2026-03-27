@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
+	import { onDestroy } from 'svelte';
 	import {
 		Bot,
 		BookOpen,
@@ -25,6 +27,12 @@
 	import { theme } from '$lib/stores/theme.svelte';
 	import type { AgentThreadListItem } from '$lib/types/agent';
 
+	type QueryState<T> = {
+		data: T | undefined;
+		isLoading: boolean;
+		error: unknown;
+	};
+
 	interface Props {
 		isOpen?: boolean;
 		onOpenCommandPalette?: () => void;
@@ -38,7 +46,7 @@
 	}: Props = $props();
 
 	const authContext = getAuthContext();
-	const convex = useConvexClient();
+	const convex = browser ? useConvexClient() : null;
 
 	const displayName = $derived(
 		authContext.currentUser?.firstName ?? authContext.currentUser?.email ?? 'User'
@@ -52,11 +60,17 @@
 
 	const shortenId = (value: string) => value.slice(0, 8);
 
-	const threadsQuery = useQuery(
-		api.authed.agentThreads.list,
-		() => (authContext.currentUser ? {} : 'skip'),
-		() => ({ keepPreviousData: true })
-	);
+	const threadsQuery: QueryState<AgentThreadListItem[]> = browser
+		? useQuery(
+				api.authed.agentThreads.list,
+				() => (authContext.currentUser ? {} : 'skip'),
+				() => ({ keepPreviousData: true })
+			)
+		: {
+				data: undefined,
+				isLoading: false,
+				error: null
+			};
 
 	const threadItems = $derived(threadsQuery.data ?? []);
 	const chatPath = resolve('/app/chat');
@@ -76,6 +90,8 @@
 	let userMenuOpen = $state(false);
 	let pendingThreadId = $state<string | null>(null);
 	const visibleCurrentThreadId = $derived(pendingThreadId ?? currentThreadId);
+	const preloadedThreadUnsubscribes = new Map<string, () => void>();
+	const preloadedThreadTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
 	function getThreadLabel(thread: AgentThreadListItem) {
 		return thread.title?.trim() || `Thread ${shortenId(thread.threadId)}`;
@@ -94,6 +110,54 @@
 		onClose();
 	}
 
+	function clearThreadPrefetch(threadId: string) {
+		const timeout = preloadedThreadTimeouts.get(threadId);
+
+		if (timeout) {
+			clearTimeout(timeout);
+			preloadedThreadTimeouts.delete(threadId);
+		}
+
+		const unsubscribe = preloadedThreadUnsubscribes.get(threadId);
+
+		if (unsubscribe) {
+			unsubscribe();
+			preloadedThreadUnsubscribes.delete(threadId);
+		}
+	}
+
+	function prefetchThread(threadId: string) {
+		if (!convex || !authContext.currentUser || threadId === currentThreadId) {
+			return;
+		}
+
+		if (!preloadedThreadUnsubscribes.has(threadId)) {
+			const unsubscribe = convex.onUpdate(
+				api.authed.agentThreads.get,
+				{ threadId },
+				() => {},
+				(error) => {
+					console.warn('Failed to prefetch thread', { threadId, error });
+				}
+			);
+
+			preloadedThreadUnsubscribes.set(threadId, unsubscribe);
+		}
+
+		const existingTimeout = preloadedThreadTimeouts.get(threadId);
+
+		if (existingTimeout) {
+			clearTimeout(existingTimeout);
+		}
+
+		preloadedThreadTimeouts.set(
+			threadId,
+			setTimeout(() => {
+				clearThreadPrefetch(threadId);
+			}, 15_000)
+		);
+	}
+
 	function newThread() {
 		pendingThreadId = null;
 		void goto(activeChatPath, { noScroll: true, keepFocus: true });
@@ -101,6 +165,10 @@
 	}
 
 	async function deleteThread(targetThreadId: string) {
+		if (!convex) {
+			return;
+		}
+
 		threadMenuOpen = null;
 
 		try {
@@ -143,6 +211,12 @@
 			pendingThreadId !== currentThreadId
 		) {
 			pendingThreadId = null;
+		}
+	});
+
+	onDestroy(() => {
+		for (const threadId of preloadedThreadUnsubscribes.keys()) {
+			clearThreadPrefetch(threadId);
 		}
 	});
 </script>
@@ -219,7 +293,11 @@
 				>
 					<a
 						href={getThreadPath(thread.threadId)}
+						data-sveltekit-preload-data="hover"
 						class="bc-threadItemLink min-h-full min-w-0 flex-1 self-stretch pr-10 text-left"
+						onmouseenter={() => prefetchThread(thread.threadId)}
+						onfocus={() => prefetchThread(thread.threadId)}
+						onpointerdown={() => prefetchThread(thread.threadId)}
 						onclick={() => openThread(thread.threadId)}
 					>
 						<div class="truncate text-sm font-medium text-[hsl(var(--bc-fg))]">

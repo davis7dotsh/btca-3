@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -47,6 +48,22 @@
 		isUserMessage as isPersistedUserMessage
 	} from '$lib/types/agent';
 	import type { ExaGetWebContentInput, ExaSearchWebInput } from '$lib/services/exa';
+
+	interface ResourceListItem {
+		id: string;
+		name: string;
+		slug: string;
+		notes: string | null;
+		createdAt: number;
+		updatedAt: number;
+		itemCount: number;
+	}
+
+	type QueryState<T> = {
+		data: T | undefined;
+		isLoading: boolean;
+		error: unknown;
+	};
 
 	const { routeBase = '/app/chat', agentApiPath = '/api/agent' } = $props<{
 		routeBase?: string;
@@ -196,7 +213,7 @@
 	}
 
 	const authContext = getAuthContext();
-	const convex = useConvexClient();
+	const convex = browser ? useConvexClient() : null;
 	const attachmentUploader = createUploadThing('agentAttachment', {});
 	const RUN_RESUME_STORAGE_KEY = 'bc-agent-run-resume';
 	const createId = () => crypto.randomUUID();
@@ -1026,21 +1043,71 @@
 	let pendingDefaultModelId = $state<AgentModelId | null>(null);
 	let pendingThreadModelIds = $state<Record<string, AgentModelId>>({});
 
-	const threadQuery = useQuery(
-		api.authed.agentThreads.get,
-		() => (authContext.currentUser && threadId ? { threadId } : 'skip'),
-		() => ({ keepPreviousData: true })
-	);
-	const defaultModelQuery = useQuery(
-		api.authed.agentThreads.getDefaultModel,
-		() => (authContext.currentUser ? {} : 'skip'),
-		() => ({ keepPreviousData: true })
-	);
-	const resourcesQuery = useQuery(
-		api.authed.resources.list,
-		() => (authContext.currentUser ? {} : 'skip'),
-		() => ({ keepPreviousData: true })
-	);
+	const threadQuery: QueryState<
+		| {
+				thread: {
+					threadId: string;
+					title: string | null;
+					sandboxId: string | null;
+					selectedModelId: string | null;
+					isMcp: boolean;
+					status: 'idle' | 'running' | 'error';
+					activity: string | null;
+					createdAt: number;
+					updatedAt: number;
+					lastPromptAt: number;
+					lastCompletedAt: number | null;
+					messageCount: number;
+				};
+				messages: readonly StoredAgentThreadMessage[];
+				attachments: readonly StoredAgentThreadAttachment[];
+		  }
+		| null
+	> = browser
+		? useQuery(
+				api.authed.agentThreads.get,
+				() => (authContext.currentUser && threadId ? { threadId } : 'skip'),
+				() => ({ keepPreviousData: true })
+			)
+		: {
+				data: undefined,
+				isLoading: false,
+				error: null
+			};
+	const defaultModelQuery: QueryState<{ defaultModelId: string | null }> = browser
+		? useQuery(
+				api.authed.agentThreads.getDefaultModel,
+				() => (authContext.currentUser ? {} : 'skip'),
+				() => ({ keepPreviousData: true })
+			)
+		: {
+				data: undefined,
+				isLoading: false,
+				error: null
+			};
+	const resourcesQuery: QueryState<
+		{
+			id: string;
+			name: string;
+			slug: string;
+			notes: string | null;
+			createdAt: number;
+			updatedAt: number;
+			itemCount: number;
+		}[]
+	> = browser
+		? useQuery(
+				api.authed.resources.list,
+				() => (authContext.currentUser ? {} : 'skip'),
+				() => ({ keepPreviousData: true })
+			)
+		: {
+				data: undefined,
+				isLoading: false,
+				error: null
+			};
+	const resolvedThreadData = $derived(threadQuery.data ?? null);
+	const resolvedDefaultModelData = $derived(defaultModelQuery.data);
 	const resourceItems = $derived(resourcesQuery.data ?? []);
 	const routeThreadId = $derived(page.params.id ?? null);
 	const isModelSelectionReady = $derived.by(() => {
@@ -1049,21 +1116,21 @@
 		}
 
 		if (threadId) {
-			return defaultModelQuery.data !== undefined && threadQuery.data !== undefined;
+			return resolvedDefaultModelData !== undefined && resolvedThreadData !== null;
 		}
 
-		return defaultModelQuery.data !== undefined;
+		return resolvedDefaultModelData !== undefined;
 	});
 	const persistedDefaultModelId = $derived(
-		defaultModelQuery.data === undefined
+		resolvedDefaultModelData === undefined
 			? null
-			: isAgentModelId(defaultModelQuery.data.defaultModelId)
-				? defaultModelQuery.data.defaultModelId
+			: isAgentModelId(resolvedDefaultModelData.defaultModelId)
+				? resolvedDefaultModelData.defaultModelId
 				: defaultAgentModelId
 	);
 	const effectiveDefaultModelId = $derived(pendingDefaultModelId ?? persistedDefaultModelId);
 	const persistedThreadModelId = $derived.by(() => {
-		const currentThread = threadQuery.data?.thread;
+		const currentThread = resolvedThreadData?.thread;
 
 		if (!threadId || !currentThread || currentThread.threadId !== threadId) {
 			return null;
@@ -1082,7 +1149,8 @@
 	const resolvedAgentApiPath = $derived(resolve(agentApiPath));
 	const isCurrentThreadRunning = $derived(
 		isStreaming ||
-			(threadQuery.data?.thread.threadId === threadId && threadQuery.data?.thread.status === 'running')
+			(resolvedThreadData?.thread.threadId === threadId &&
+				resolvedThreadData.thread.status === 'running')
 	);
 	const assistantMessages = $derived(
 		messages.filter((message): message is AssistantMessage => message.role === 'assistant')
@@ -1107,26 +1175,26 @@
 		)
 	);
 	const hydratedThreadMessages = $derived.by(() => {
-		if (!threadId || threadQuery.data === undefined || threadQuery.data === null) {
+		if (!threadId || resolvedThreadData === null) {
 			return null;
 		}
 
-		if (threadQuery.data.thread.threadId !== threadId) {
+		if (resolvedThreadData.thread.threadId !== threadId) {
 			return null;
 		}
 
-		return hydrateStoredThreadMessages(threadQuery.data.messages, threadQuery.data.attachments ?? []);
+		return hydrateStoredThreadMessages(resolvedThreadData.messages, resolvedThreadData.attachments ?? []);
 	});
 	const hydratedThreadAttachments = $derived.by(() => {
-		if (!threadId || threadQuery.data === undefined || threadQuery.data === null) {
+		if (!threadId || resolvedThreadData === null) {
 			return null;
 		}
 
-		if (threadQuery.data.thread.threadId !== threadId) {
+		if (resolvedThreadData.thread.threadId !== threadId) {
 			return null;
 		}
 
-		return (threadQuery.data.attachments ?? []).map(cloneStoredAttachment);
+		return (resolvedThreadData.attachments ?? []).map(cloneStoredAttachment);
 	});
 	const fullThreadCopyText = $derived(
 		messages
@@ -1142,7 +1210,7 @@
 		const rawQuery = mentionState.query.trim();
 		const query = rawQuery.length === 0 ? '' : normalizeResourceSlug(rawQuery);
 		const rankedMatches = resourceItems
-			.map((resource) => {
+			.map((resource: ResourceListItem) => {
 				const slug = resource.slug.toLowerCase();
 				const name = resource.name.toLowerCase();
 				let score = 0;
@@ -1165,13 +1233,16 @@
 
 				return { resource, score };
 			})
-			.filter((candidate) => candidate.score > 0)
+			.filter((candidate: { resource: ResourceListItem; score: number }) => candidate.score > 0)
 			.sort(
-				(left, right) =>
+				(
+					left: { resource: ResourceListItem; score: number },
+					right: { resource: ResourceListItem; score: number }
+				) =>
 					right.score - left.score || left.resource.name.localeCompare(right.resource.name)
 			)
 			.slice(0, 8)
-			.map((candidate) => candidate.resource);
+			.map((candidate: { resource: ResourceListItem; score: number }) => candidate.resource);
 
 		return rankedMatches;
 	});
@@ -1218,7 +1289,7 @@
 			return;
 		}
 
-		threadPersistedMessageCountCache[threadId] = threadQuery.data?.thread.messageCount ?? 0;
+		threadPersistedMessageCountCache[threadId] = resolvedThreadData?.thread.messageCount ?? 0;
 
 		if (threadMessageCache[threadId] !== undefined) {
 			return;
@@ -1282,11 +1353,11 @@
 			return;
 		}
 
-		if (hasLoggedResourceLoadStart && resourcesQuery.data) {
+		if (hasLoggedResourceLoadStart && resourceItems.length > 0) {
 			hasLoggedResourceLoadStart = false;
 			console.debug('Agent chat resources loaded', {
 				threadId,
-				resourceCount: resourcesQuery.data.length,
+				resourceCount: resourceItems.length,
 				timestamp: Date.now()
 			});
 		}
@@ -1299,8 +1370,8 @@
 			isStreaming ||
 			resumingThreadId === threadId ||
 			threadQuery.isLoading ||
-			threadQuery.data?.thread.threadId !== threadId ||
-			threadQuery.data.thread.status !== 'running'
+			resolvedThreadData?.thread.threadId !== threadId ||
+			resolvedThreadData.thread.status !== 'running'
 		) {
 			return;
 		}
@@ -1309,11 +1380,11 @@
 	});
 
 	$effect(() => {
-		if (!threadId || threadQuery.data?.thread.threadId !== threadId) {
+		if (!threadId || resolvedThreadData?.thread.threadId !== threadId) {
 			return;
 		}
 
-		if (threadQuery.data.thread.status === 'running') {
+		if (resolvedThreadData.thread.status === 'running') {
 			return;
 		}
 
@@ -1458,6 +1529,10 @@
 	async function ensureThreadId() {
 		if (threadId) {
 			return threadId;
+		}
+
+		if (!convex) {
+			throw new Error('Convex client is not ready yet.');
 		}
 
 		const nextThreadId = createThreadId();
@@ -1644,8 +1719,8 @@
 			return cachedCount;
 		}
 
-		if (threadQuery.data?.thread.threadId === targetThreadId) {
-			return threadQuery.data.thread.messageCount;
+		if (resolvedThreadData?.thread.threadId === targetThreadId) {
+			return resolvedThreadData.thread.messageCount;
 		}
 
 		return 0;
@@ -2679,6 +2754,7 @@
 		if (
 			isStreaming ||
 			retryingMessageId !== null ||
+			!convex ||
 			!threadId ||
 			message.persistedSequence === null
 		) {
@@ -2819,6 +2895,10 @@
 	}
 
 	async function selectModel(id: AgentModelId) {
+		if (!convex) {
+			return;
+		}
+
 		const previousSelectedModelId = selectedModelId;
 		const previousPendingDefaultModelId = pendingDefaultModelId;
 		const previousPendingThreadModelIds = pendingThreadModelIds;

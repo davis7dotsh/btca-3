@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import {
 		BookOpen,
 		Command,
@@ -18,6 +19,7 @@
 	import { api } from '@btca/convex/api';
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 	import { theme } from '$lib/stores/theme.svelte';
+	import type { AgentThreadListItem } from '$lib/types/agent';
 
 	type CommandItem = {
 		id: string;
@@ -33,14 +35,26 @@
 		onClose: () => void;
 	}
 
+	type QueryState<T> = {
+		data: T | undefined;
+		isLoading: boolean;
+		error: unknown;
+	};
+
 	let { isOpen, onClose }: Props = $props();
 
 	const authContext = getAuthContext();
-	const threadsQuery = useQuery(
-		api.authed.agentThreads.list,
-		() => (authContext.currentUser ? {} : 'skip'),
-		() => ({ keepPreviousData: true })
-	);
+	const threadsQuery: QueryState<AgentThreadListItem[]> = browser
+		? useQuery(
+				api.authed.agentThreads.list,
+				() => (authContext.currentUser ? {} : 'skip'),
+				() => ({ keepPreviousData: true })
+			)
+		: {
+				data: undefined,
+				isLoading: false,
+				error: null
+			};
 	const threads = $derived(threadsQuery.data ?? []);
 
 	const maxVisibleThreads = 5;

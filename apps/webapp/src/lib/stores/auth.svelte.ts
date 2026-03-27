@@ -12,12 +12,23 @@ export interface AuthUser {
   readonly profilePictureUrl: string | null;
 }
 
+interface AuthStoreBootstrap {
+  readonly user: AuthUser | null;
+}
+
 class AuthStore {
   status = $state<"loading" | "authenticated" | "unauthenticated">("loading");
   currentUser = $state<AuthUser | null>(null);
   errorMessage = $state<string | null>(null);
 
-  constructor() {
+  constructor(initialState?: AuthStoreBootstrap) {
+    if (initialState) {
+      this.status = initialState.user ? "authenticated" : "unauthenticated";
+      this.currentUser = initialState.user;
+      this.errorMessage = null;
+      return;
+    }
+
     onMount(() => {
       void this.refreshSession();
     });
@@ -77,8 +88,8 @@ export function getAuthContext() {
   return authContext;
 }
 
-export function setAuthContext() {
-  const authContext = new AuthStore();
+export function setAuthContext(initialState?: AuthStoreBootstrap) {
+  const authContext = new AuthStore(initialState);
   setInternalGetAuthContext(authContext);
   return authContext;
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { CONVEX_URL } from '$lib/convex-env';
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 	import { setupConvex, useConvexClient } from 'convex-svelte';
@@ -32,10 +33,12 @@
 		return data.accessToken;
 	};
 
-	setupConvex(CONVEX_URL);
+	if (browser) {
+		setupConvex(CONVEX_URL);
 
-	const convex = useConvexClient();
-	convex.setAuth(getAuthToken);
+		const convex = useConvexClient();
+		convex.setAuth(getAuthToken);
+	}
 
 	const { children } = $props();
 </script>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { useConvexClient, useQuery } from 'convex-svelte';
@@ -9,10 +10,26 @@
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 	import type { CuratedResource } from '$lib/types/curated-resources';
 
+	type ResourceListItem = {
+		id: string;
+		name: string;
+		slug: string;
+		notes: string | null;
+		createdAt: number;
+		updatedAt: number;
+		itemCount: number;
+	};
+
+	type QueryState<T> = {
+		data: T | undefined;
+		isLoading: boolean;
+		error: unknown;
+	};
+
 	let { data }: { data: PageData } = $props();
 
 	const authContext = getAuthContext();
-	const convex = useConvexClient();
+	const convex = browser ? useConvexClient() : null;
 
 	let newResourceName = $state('');
 	let newResourceNotes = $state('');
@@ -21,11 +38,17 @@
 	let isCreating = $state(false);
 	let addingCuratedSlug = $state<string | null>(null);
 
-	const resourcesQuery = useQuery(
-		api.authed.resources.list,
-		() => (authContext.currentUser ? {} : 'skip'),
-		() => ({ keepPreviousData: true })
-	);
+	const resourcesQuery: QueryState<ResourceListItem[]> = browser
+		? useQuery(
+				api.authed.resources.list,
+				() => (authContext.currentUser ? {} : 'skip'),
+				() => ({ keepPreviousData: true })
+			)
+		: {
+				data: undefined,
+				isLoading: false,
+				error: null
+			};
 	const existingResourcesBySlug = $derived(
 		new Map((resourcesQuery.data ?? []).map((resource) => [resource.slug, resource]))
 	);
@@ -49,7 +72,7 @@
 	async function createResource() {
 		const name = newResourceName.trim();
 
-		if (!name || isCreating) {
+		if (!name || isCreating || !convex) {
 			return;
 		}
 
@@ -73,7 +96,7 @@
 	}
 
 	async function quickAddCuratedResource(resource: CuratedResource) {
-		if (addingCuratedSlug !== null) {
+		if (addingCuratedSlug !== null || !convex) {
 			return;
 		}
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -13,6 +14,12 @@
 	} from '$lib/types/agent';
 	import { api } from '@btca/convex/api';
 	import { useQuery } from 'convex-svelte';
+
+	type QueryState<T> = {
+		data: T | undefined;
+		isLoading: boolean;
+		error: unknown;
+	};
 
 	type TimelineItem = {
 		id: string;
@@ -37,21 +44,39 @@
 		timeStyle: 'short'
 	});
 
-	const mcpThreadsQuery = useQuery(
-		api.authed.agentThreads.listMcp,
-		() => (authContext.currentUser ? {} : 'skip'),
-		() => ({ keepPreviousData: true })
-	);
+	const mcpThreadsQuery: QueryState<AgentThreadListItem[]> = browser
+		? useQuery(
+				api.authed.agentThreads.listMcp,
+				() => (authContext.currentUser ? {} : 'skip'),
+				() => ({ keepPreviousData: true })
+			)
+		: {
+				data: undefined,
+				isLoading: false,
+				error: null
+			};
 
 	const selectedThreadId = $derived(
 		page.url.searchParams.get('thread') ?? mcpThreadsQuery.data?.[0]?.threadId ?? null
 	);
 
-	const threadQuery = useQuery(
-		api.authed.agentThreads.get,
-		() => (authContext.currentUser && selectedThreadId ? { threadId: selectedThreadId } : 'skip'),
-		() => ({ keepPreviousData: true })
-	);
+	const threadQuery: QueryState<
+		| {
+				thread: AgentThreadListItem;
+				messages: StoredAgentThreadMessage[];
+		  }
+		| null
+	> = browser
+		? useQuery(
+				api.authed.agentThreads.get,
+				() => (authContext.currentUser && selectedThreadId ? { threadId: selectedThreadId } : 'skip'),
+				() => ({ keepPreviousData: true })
+			)
+		: {
+				data: undefined,
+				isLoading: false,
+				error: null
+			};
 
 	const selectedThread = $derived(threadQuery.data?.thread ?? null);
 
