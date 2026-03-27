@@ -55,8 +55,7 @@ const parseLogLevel = (value: string | undefined): LogLevel | undefined => {
   return undefined;
 };
 
-const logLevel =
-  parseLogLevel(env.LOG_LEVEL) ?? (environment === "production" ? "info" : "debug");
+const logLevel = parseLogLevel(env.LOG_LEVEL) ?? (environment === "production" ? "info" : "debug");
 
 const getAxiomClient = () => {
   const token = trimToUndefined(env.AXIOM_TOKEN);
