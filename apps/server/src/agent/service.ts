@@ -303,6 +303,7 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
         workspaceDir?: string | null;
         modelId?: string | null;
         provider?: string | null;
+        resourceNames?: readonly string[];
       }) =>
         threads.setThreadState(args).pipe(
           Effect.mapError(
@@ -497,6 +498,7 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
         preview: string;
         modelId: string;
         provider: string;
+        resourceNames: readonly string[];
         workspaceDir: string;
         rawEvents: AsyncIterable<AgentEvent>;
       }) =>
@@ -571,6 +573,7 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
                   workspaceDir: args.workspaceDir,
                   modelId: args.modelId,
                   provider: args.provider,
+                  resourceNames: args.resourceNames,
                 }),
               );
               throw new AgentError({
@@ -591,6 +594,7 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
                   workspaceDir: args.workspaceDir,
                   provider: args.provider,
                   modelId: args.modelId,
+                  resourceNames: args.resourceNames,
                 })
                 .pipe(
                   Effect.mapError(
@@ -611,6 +615,7 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
                 workspaceDir: args.workspaceDir,
                 modelId: args.modelId,
                 provider: args.provider,
+                resourceNames: args.resourceNames,
               }),
             );
           } catch (cause) {
@@ -622,6 +627,7 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
                 workspaceDir: args.workspaceDir,
                 modelId: args.modelId,
                 provider: args.provider,
+                resourceNames: args.resourceNames,
               }).pipe(Effect.orElseSucceed(() => undefined)),
             );
 
@@ -649,6 +655,7 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
                   preview: prepared.preview,
                   modelId: prepared.modelId,
                   provider: prepared.provider,
+                  resourceNames: prepared.resourceNames,
                   workspaceDir: prepared.workspaceDir,
                   rawEvents: prepared.rawEvents,
                 })) {
@@ -727,6 +734,7 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
                 preview: prepared.preview,
                 modelId: prepared.modelId,
                 provider: prepared.provider,
+                resourceNames: prepared.resourceNames,
                 workspaceDir: prepared.workspaceDir,
                 rawEvents: prepared.rawEvents,
               }),

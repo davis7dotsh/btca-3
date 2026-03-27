@@ -478,6 +478,31 @@ export const RoutesLive = Layer.mergeAll(
   ),
   HttpRouter.add(
     "GET",
+    "/threads",
+    handleJsonRoute(
+      Effect.gen(function* () {
+        const threads = yield* AgentThreadStore;
+        const items = yield* threads.listThreads();
+
+        return {
+          threads: items.map((thread) => ({
+            threadId: thread.threadId,
+            createdAt: thread.createdAt,
+            updatedAt: thread.updatedAt,
+            status: thread.status,
+            activity: thread.activity,
+            workspaceDir: thread.workspaceDir,
+            modelId: thread.modelId,
+            provider: thread.provider,
+            resourceNames: thread.resourceNames,
+            messageCount: thread.messages.length,
+          })),
+        };
+      }),
+    ),
+  ),
+  HttpRouter.add(
+    "GET",
     "/threads/:threadId",
     handleJsonRoute(
       Effect.gen(function* () {

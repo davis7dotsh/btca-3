@@ -25,6 +25,7 @@ type StoredThread = {
   readonly workspaceDir: string | null;
   readonly modelId: string | null;
   readonly provider: string | null;
+  readonly resourceNames: readonly string[];
   readonly messages: readonly StoredThreadMessage[];
 };
 
@@ -35,6 +36,7 @@ export class ThreadStoreError extends Data.TaggedError("ThreadStoreError")<{
 
 type ThreadStoreShape = {
   readonly loadThread: (threadId: string) => Effect.Effect<StoredThread | null, ThreadStoreError>;
+  readonly listThreads: () => Effect.Effect<readonly StoredThread[], ThreadStoreError>;
   readonly setThreadState: (args: {
     threadId: string;
     status: "idle" | "running" | "error";
@@ -42,6 +44,7 @@ type ThreadStoreShape = {
     workspaceDir?: string | null;
     modelId?: string | null;
     provider?: string | null;
+    resourceNames?: readonly string[];
   }) => Effect.Effect<void, ThreadStoreError>;
   readonly appendMessages: (args: {
     threadId: string;
@@ -49,6 +52,7 @@ type ThreadStoreShape = {
     workspaceDir: string;
     provider: string;
     modelId: string;
+    resourceNames: readonly string[];
   }) => Effect.Effect<StoredThread, ThreadStoreError>;
 };
 
@@ -72,6 +76,9 @@ const isStoredThread = (value: unknown): value is StoredThread =>
   (value.workspaceDir === null || typeof value.workspaceDir === "string") &&
   (value.modelId === null || typeof value.modelId === "string") &&
   (value.provider === null || typeof value.provider === "string") &&
+  (!("resourceNames" in value) ||
+    (Array.isArray(value.resourceNames) &&
+      value.resourceNames.every((resourceName) => typeof resourceName === "string"))) &&
   Array.isArray(value.messages) &&
   value.messages.every(isStoredMessage);
 
@@ -178,7 +185,49 @@ export class AgentThreadStore extends ServiceMap.Service<AgentThreadStore, Threa
             );
           }
 
-          return parsed;
+          return {
+            ...parsed,
+            resourceNames: Array.isArray(parsed.resourceNames) ? parsed.resourceNames : [],
+          };
+        });
+
+      const listThreads: ThreadStoreShape["listThreads"] = () =>
+        Effect.gen(function* () {
+          const snapshot = yield* config.snapshot;
+          const threadsDirectory = path.join(snapshot.dataDirectory, "agent-threads");
+
+          const filenames = yield* Effect.tryPromise({
+            try: async () => {
+              try {
+                return await Fs.readdir(threadsDirectory);
+              } catch (cause) {
+                if (
+                  cause &&
+                  typeof cause === "object" &&
+                  "code" in cause &&
+                  cause.code === "ENOENT"
+                ) {
+                  return [];
+                }
+
+                throw cause;
+              }
+            },
+            catch: (cause) =>
+              new ThreadStoreError({
+                message: "Failed to list agent threads.",
+                cause,
+              }),
+          });
+
+          const threads = yield* Effect.forEach(
+            filenames.filter((filename) => filename.endsWith(".json")),
+            (filename) => loadThread(filename.slice(0, -".json".length)),
+          );
+
+          return threads
+            .filter((thread): thread is StoredThread => thread !== null)
+            .sort((left, right) => right.updatedAt - left.updatedAt);
         });
 
       const setThreadState: ThreadStoreShape["setThreadState"] = ({
@@ -188,6 +237,7 @@ export class AgentThreadStore extends ServiceMap.Service<AgentThreadStore, Threa
         workspaceDir,
         modelId,
         provider,
+        resourceNames,
       }) =>
         Effect.gen(function* () {
           const existing = yield* loadThread(threadId).pipe(Effect.orElseSucceed(() => null));
@@ -202,6 +252,7 @@ export class AgentThreadStore extends ServiceMap.Service<AgentThreadStore, Threa
             workspaceDir: workspaceDir ?? existing?.workspaceDir ?? null,
             modelId: modelId ?? existing?.modelId ?? null,
             provider: provider ?? existing?.provider ?? null,
+            resourceNames: resourceNames ?? existing?.resourceNames ?? [],
             messages: existing?.messages ?? [],
           };
 
@@ -214,6 +265,7 @@ export class AgentThreadStore extends ServiceMap.Service<AgentThreadStore, Threa
         workspaceDir,
         provider,
         modelId,
+        resourceNames,
       }) =>
         Effect.gen(function* () {
           const existing = yield* loadThread(threadId).pipe(Effect.orElseSucceed(() => null));
@@ -246,6 +298,7 @@ export class AgentThreadStore extends ServiceMap.Service<AgentThreadStore, Threa
             workspaceDir,
             provider,
             modelId,
+            resourceNames,
             messages: [...(existing?.messages ?? []), ...serialized],
           };
 
@@ -255,6 +308,7 @@ export class AgentThreadStore extends ServiceMap.Service<AgentThreadStore, Threa
 
       return {
         loadThread,
+        listThreads,
         setThreadState,
         appendMessages,
       } satisfies ThreadStoreShape;

@@ -3,11 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "bin": {
-    "btca": "./dist/cli.mjs"
+    "btca": "./dist/bootstrap.mjs"
   },
   "type": "module",
   "scripts": {
-    "dev": "node src/cli.ts",
+    "dev": "vp pack && node dist/bootstrap.mjs",
     "build": "vp pack",
     "check": "vp check"
   },
@@ -16,8 +16,12 @@
     "@effect/platform-node": "4.0.0-beta.40",
     "@tmcp/adapter-zod": "catalog:",
     "@tmcp/transport-stdio": "catalog:",
+    "@types/react": "catalog:",
     "effect": "4.0.0-beta.40",
+    "ink": "catalog:",
+    "ink-text-input": "catalog:",
     "jsonc-parser": "catalog:",
+    "react": "catalog:",
     "tmcp": "catalog:",
     "zod": "catalog:"
   },

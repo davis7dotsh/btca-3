@@ -32,6 +32,7 @@ import {
   Telemetry,
 } from "./telemetry.ts";
 import { runMcpLocalSetup, runMcpServer } from "./mcp.ts";
+import { launchTui } from "./tui/launch.ts";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
@@ -994,6 +995,14 @@ const serve = Cli.Command.make("serve", {}, () =>
   }),
 ).pipe(Cli.Command.withDescription("Start the local BTCA HTTP server and keep it running."));
 
+const tui = Cli.Command.make("tui", {}, () =>
+  runTrackedEffectCommand({
+    command: "tui",
+    mode: "tui",
+    action: launchTui({ version }),
+  }),
+).pipe(Cli.Command.withDescription("Launch the btca OpenTUI terminal interface."));
+
 const mcpLocal = Cli.Command.make("local", {}, () => runMcpLocalSetup).pipe(
   Cli.Command.withDescription("Print copy-paste local MCP setup for a supported harness."),
 );
@@ -1668,6 +1677,7 @@ const app = btca.pipe(
   Cli.Command.withSubcommands([
     hello,
     serve,
+    tui,
     mcp,
     ask,
     connect,
