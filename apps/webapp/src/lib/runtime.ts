@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NodeServices } from "@effect/platform-node";
 import { error } from "@sveltejs/kit";
 import { Cause, Data, Effect, Exit, Layer, ManagedRuntime } from "effect";
+import { serializeUnknown, serverLogger } from "./server/logger";
 import { AgentError, AgentService } from "./services/agent";
 import { AutumnService, AutumnServiceError } from "./services/autumn";
 import { AuthError, AuthService } from "./services/auth";
@@ -52,33 +53,6 @@ export const createGenericError = ({
     cause,
   });
 
-const serializeUnknown = (value: unknown): unknown => {
-  if (value instanceof Error) {
-    return {
-      name: value.name,
-      message: value.message,
-      stack: value.stack,
-      cause: value.cause === undefined ? undefined : serializeUnknown(value.cause),
-    };
-  }
-
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean" ||
-    value === null ||
-    value === undefined
-  ) {
-    return value;
-  }
-
-  try {
-    return JSON.parse(JSON.stringify(value));
-  } catch {
-    return { nonSerializableValue: Object.prototype.toString.call(value) };
-  }
-};
-
 const toPublicError = (
   errorValue: Pick<
     | GenericError
@@ -110,7 +84,7 @@ const logTaggedError = (
     | RunStreamServiceError,
 ) => {
   if (errorValue instanceof ConvexError) {
-    console.error("Convex error", {
+    serverLogger.error("Convex error", {
       traceId: errorValue.traceId,
       kind: errorValue.kind,
       timestamp: errorValue.timestamp,
@@ -125,7 +99,7 @@ const logTaggedError = (
   }
 
   if (errorValue instanceof AuthError) {
-    console.error("Auth error", {
+    serverLogger.error("Auth error", {
       traceId: errorValue.traceId,
       kind: errorValue.kind,
       timestamp: errorValue.timestamp,
@@ -137,7 +111,7 @@ const logTaggedError = (
   }
 
   if (errorValue instanceof ExaServiceError) {
-    console.error("Exa service error", {
+    serverLogger.error("Exa service error", {
       traceId: errorValue.traceId,
       kind: errorValue.kind,
       timestamp: errorValue.timestamp,
@@ -150,7 +124,7 @@ const logTaggedError = (
   }
 
   if (errorValue instanceof BoxServiceError) {
-    console.error("Box service error", {
+    serverLogger.error("Box service error", {
       traceId: errorValue.traceId,
       kind: errorValue.kind,
       timestamp: errorValue.timestamp,
@@ -163,7 +137,7 @@ const logTaggedError = (
   }
 
   if (errorValue instanceof AgentError) {
-    console.error("Agent service error", {
+    serverLogger.error("Agent service error", {
       traceId: errorValue.traceId,
       kind: errorValue.kind,
       timestamp: errorValue.timestamp,
@@ -176,7 +150,7 @@ const logTaggedError = (
   }
 
   if (errorValue instanceof AutumnServiceError) {
-    console.error("Autumn service error", {
+    serverLogger.error("Autumn service error", {
       traceId: errorValue.traceId,
       kind: errorValue.kind,
       timestamp: errorValue.timestamp,
@@ -189,7 +163,7 @@ const logTaggedError = (
   }
 
   if (errorValue instanceof RunStreamServiceError) {
-    console.error("Run stream service error", {
+    serverLogger.error("Run stream service error", {
       traceId: errorValue.traceId,
       kind: errorValue.kind,
       timestamp: errorValue.timestamp,
@@ -201,7 +175,7 @@ const logTaggedError = (
     return;
   }
 
-  console.error("Application error", {
+  serverLogger.error("Application error", {
     traceId: errorValue.traceId,
     kind: errorValue.kind,
     timestamp: errorValue.timestamp,
@@ -265,16 +239,16 @@ export const effectRunner = async <T>(
               | RunStreamServiceError,
           );
         } else {
-          console.error("Unhandled effect error", {
+          serverLogger.error("Unhandled effect error", {
             error: serializeUnknown(failError),
           });
         }
       } else if (Cause.isDieReason(reason)) {
-        console.error("Effect defect", {
+        serverLogger.error("Effect defect", {
           defect: serializeUnknown(reason.defect),
         });
       } else if (Cause.isInterruptReason(reason)) {
-        console.error("Effect interrupted", {
+        serverLogger.error("Effect interrupted", {
           fiberId: reason.fiberId,
         });
       }
