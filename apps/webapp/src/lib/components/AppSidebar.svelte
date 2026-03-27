@@ -39,7 +39,6 @@
 
 	const authContext = getAuthContext();
 	const convex = useConvexClient();
-	const prefetchedThreadSubscriptions = new Map<string, ReturnType<typeof convex.onUpdate>>();
 
 	const displayName = $derived(
 		authContext.currentUser?.firstName ?? authContext.currentUser?.email ?? 'User'
@@ -75,6 +74,8 @@
 
 	let threadMenuOpen = $state<string | null>(null);
 	let userMenuOpen = $state(false);
+	let pendingThreadId = $state<string | null>(null);
+	const visibleCurrentThreadId = $derived(pendingThreadId ?? currentThreadId);
 
 	function getThreadLabel(thread: AgentThreadListItem) {
 		return thread.title?.trim() || `Thread ${shortenId(thread.threadId)}`;
@@ -89,31 +90,12 @@
 	}
 
 	function openThread(threadId: string) {
-		void goto(getThreadPath(threadId), {
-			noScroll: true,
-			keepFocus: true
-		});
+		pendingThreadId = threadId;
 		onClose();
 	}
 
-	function prefetchThread(threadId: string) {
-		if (!authContext.currentUser || prefetchedThreadSubscriptions.has(threadId)) {
-			return;
-		}
-
-		const subscription = convex.onUpdate(
-			api.authed.agentThreads.get,
-			{ threadId },
-			() => {},
-			(error) => {
-				console.error(`Failed to prefetch thread ${threadId}`, error);
-			}
-		);
-
-		prefetchedThreadSubscriptions.set(threadId, subscription);
-	}
-
 	function newThread() {
+		pendingThreadId = null;
 		void goto(activeChatPath, { noScroll: true, keepFocus: true });
 		onClose();
 	}
@@ -142,23 +124,26 @@
 	}
 
 	$effect(() => {
-		const activeThreadIds = new Set(threadItems.map((thread) => thread.threadId));
+		if (!isOnAnyChat) {
+			pendingThreadId = null;
+			return;
+		}
 
-		for (const [threadId, unsubscribe] of prefetchedThreadSubscriptions) {
-			if (!activeThreadIds.has(threadId)) {
-				unsubscribe();
-				prefetchedThreadSubscriptions.delete(threadId);
-			}
+		if (pendingThreadId !== null && pendingThreadId === currentThreadId) {
+			pendingThreadId = null;
 		}
 	});
 
 	$effect(() => {
-		return () => {
-			for (const unsubscribe of prefetchedThreadSubscriptions.values()) {
-				unsubscribe();
-			}
-			prefetchedThreadSubscriptions.clear();
-		};
+		const activeThreadIds = new Set(threadItems.map((thread) => thread.threadId));
+
+		if (
+			pendingThreadId !== null &&
+			!activeThreadIds.has(pendingThreadId) &&
+			pendingThreadId !== currentThreadId
+		) {
+			pendingThreadId = null;
+		}
 	});
 </script>
 
@@ -229,20 +214,26 @@
 				<div
 					class={[
 						'bc-threadItem group',
-						isOnAnyChat && thread.threadId === currentThreadId && 'bc-threadItem-active'
+						isOnAnyChat && thread.threadId === visibleCurrentThreadId && 'bc-threadItem-active'
 					]}
 				>
-					<button
-						type="button"
-						class="min-w-0 flex-1 bg-transparent p-0 text-left"
-						onmouseenter={() => prefetchThread(thread.threadId)}
-						onfocus={() => prefetchThread(thread.threadId)}
+					<a
+						href={getThreadPath(thread.threadId)}
+						class="min-w-0 flex-1 text-left"
 						onclick={() => openThread(thread.threadId)}
 					>
 						<div class="truncate text-sm font-medium text-[hsl(var(--bc-fg))]">
 							{getThreadLabel(thread)}
 						</div>
 						<div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[hsl(var(--bc-fg-muted))]">
+							{#if thread.status === 'running'}
+								<span
+									class="inline-flex items-center gap-1 rounded-full border border-[hsl(var(--bc-accent)/0.24)] bg-[hsl(var(--bc-accent)/0.1)] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.12em] text-[hsl(var(--bc-accent))] uppercase"
+								>
+									<span class="h-1.5 w-1.5 rounded-full bg-current"></span>
+									Running
+								</span>
+							{/if}
 							<span>{formatTimestamp(thread.updatedAt)}</span>
 							<span>{thread.messageCount} msgs</span>
 							{#if thread.isMcp}
@@ -253,7 +244,7 @@
 								</span>
 							{/if}
 						</div>
-					</button>
+					</a>
 
 					<div class="relative shrink-0">
 						<button

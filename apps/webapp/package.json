@@ -25,6 +25,8 @@
     "@tmcp/transport-http": "^0.8.5",
     "@uploadthing/svelte": "catalog:",
     "@upstash/box": "^0.1.28",
+    "@upstash/redis": "catalog:",
+    "@vercel/functions": "catalog:",
     "@workos-inc/node": "^8.9.0",
     "ai": "^6.0.134",
     "autumn-js": "catalog:",

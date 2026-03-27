@@ -8,6 +8,7 @@ import { AuthError, AuthService } from "./services/auth";
 import { BoxService, BoxServiceError } from "./services/box";
 import { ConvexError, ConvexPrivateService } from "./services/convex";
 import { ExaService, ExaServiceError } from "./services/exa";
+import { RunStreamService, RunStreamServiceError } from "./services/runStream";
 
 const appLayer = Layer.mergeAll(
   NodeServices.layer,
@@ -16,6 +17,7 @@ const appLayer = Layer.mergeAll(
   AuthService.layer,
   ExaService.layer,
   BoxService.layer,
+  RunStreamService.layer,
   AgentService.layer,
 );
 
@@ -85,7 +87,8 @@ const toPublicError = (
     | ExaServiceError
     | BoxServiceError
     | AgentError
-    | AutumnServiceError,
+    | AutumnServiceError
+    | RunStreamServiceError,
     "message" | "kind" | "timestamp" | "traceId"
   >,
 ) => ({
@@ -103,7 +106,8 @@ const logTaggedError = (
     | ExaServiceError
     | BoxServiceError
     | AgentError
-    | AutumnServiceError,
+    | AutumnServiceError
+    | RunStreamServiceError,
 ) => {
   if (errorValue instanceof ConvexError) {
     console.error("Convex error", {
@@ -184,6 +188,19 @@ const logTaggedError = (
     return;
   }
 
+  if (errorValue instanceof RunStreamServiceError) {
+    console.error("Run stream service error", {
+      traceId: errorValue.traceId,
+      kind: errorValue.kind,
+      timestamp: errorValue.timestamp,
+      operation: errorValue.operation,
+      message: errorValue.message,
+      cause: serializeUnknown(errorValue.cause),
+    });
+
+    return;
+  }
+
   console.error("Application error", {
     traceId: errorValue.traceId,
     kind: errorValue.kind,
@@ -210,6 +227,7 @@ export const effectRunner = async <T>(
     | AuthService
     | ExaService
     | BoxService
+    | RunStreamService
     | AgentService
   >,
 ) => {
@@ -220,19 +238,35 @@ export const effectRunner = async <T>(
 
     for (const reason of cause.reasons) {
       if (Cause.isFailReason(reason)) {
+        const failError = reason.error;
+        const failErrorObject = failError as object;
+
         if (
-          reason.error instanceof GenericError ||
-          reason.error instanceof ConvexError ||
-          reason.error instanceof AuthError ||
-          reason.error instanceof ExaServiceError ||
-          reason.error instanceof BoxServiceError ||
-          reason.error instanceof AgentError ||
-          reason.error instanceof AutumnServiceError
+          typeof failError === "object" &&
+          failError !== null &&
+          (failError instanceof GenericError ||
+            failError instanceof ConvexError ||
+            failError instanceof AuthError ||
+            failError instanceof ExaServiceError ||
+            failError instanceof BoxServiceError ||
+            failError instanceof AgentError ||
+            failErrorObject instanceof AutumnServiceError ||
+            failErrorObject instanceof RunStreamServiceError)
         ) {
-          logTaggedError(reason.error);
+          logTaggedError(
+            failError as
+              | GenericError
+              | ConvexError
+              | AuthError
+              | ExaServiceError
+              | BoxServiceError
+              | AgentError
+              | AutumnServiceError
+              | RunStreamServiceError,
+          );
         } else {
           console.error("Unhandled effect error", {
-            error: serializeUnknown(reason.error),
+            error: serializeUnknown(failError),
           });
         }
       } else if (Cause.isDieReason(reason)) {

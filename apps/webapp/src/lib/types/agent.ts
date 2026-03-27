@@ -229,6 +229,12 @@ export interface AgentDoneEvent {
   readonly timestamp: number;
 }
 
+export interface AgentRunErrorEvent {
+  readonly type: "run_error";
+  readonly message: string;
+  readonly timestamp: number;
+}
+
 export interface ReadFileToolCallStartEvent {
   readonly type: "tool_call_start";
   readonly toolType: "read_file";
@@ -309,7 +315,22 @@ export type AgentPromptStreamEvent =
   | AgentRunMetricsEvent
   | AgentToolCallStartEvent
   | AgentToolCallEndEvent
-  | AgentDoneEvent;
+  | AgentDoneEvent
+  | AgentRunErrorEvent;
+
+export interface AgentRunStartResponse {
+  readonly runId: string;
+  readonly threadId: string;
+  readonly streamPath: string;
+}
+
+export interface ActiveAgentRunResponse {
+  readonly runId: string;
+  readonly threadId: string;
+  readonly streamPath: string;
+  readonly prompt: string;
+  readonly attachmentIds: readonly string[];
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;

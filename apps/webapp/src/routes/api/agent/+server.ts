@@ -1,26 +1,14 @@
+import { waitUntil } from "@vercel/functions";
 import { json, type RequestHandler } from "@sveltejs/kit";
-import type { AgentEvent } from "@mariozechner/pi-agent-core";
-import { Data, Effect, Schema, Stream } from "effect";
+import { Data, Effect, Schema } from "effect";
 import { runtime } from "$lib/runtime";
+import { normalizeAgentEvent } from "$lib/services/agentStreamEvents";
 import { AgentService } from "$lib/services/agent";
 import { AutumnService } from "$lib/services/autumn";
 import { AuthService } from "$lib/services/auth";
 import { BoxServiceError } from "$lib/services/box";
-import {
-  isAgentRunMetrics,
-  isSandboxExecuteCommandResult,
-  isSandboxReadFileResult,
-  isExecCommandToolArgs,
-  isReadFileToolArgs,
-  type AgentPromptStreamEvent,
-} from "$lib/types/agent";
-
-class AgentAsyncIterableError extends Schema.TaggedErrorClass<AgentAsyncIterableError>()(
-  "AgentAsyncIterableError",
-  {
-    cause: Schema.Defect,
-  },
-) {}
+import { RunStreamService } from "$lib/services/runStream";
+import type { AgentPromptStreamEvent, AgentRunStartResponse } from "$lib/types/agent";
 
 class AgentRequestError extends Data.TaggedError("AgentRequestError")<{
   readonly status: number;
@@ -35,260 +23,142 @@ const PromptThreadAgentRequestInputSchema = Schema.Struct({
   attachmentIds: Schema.optional(Schema.Array(Schema.NonEmptyString)),
 });
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const appendRunErrorEvent = ({
+  runId,
+  threadId,
+  message,
+}: {
+  runId: string;
+  threadId: string;
+  message: string;
+}) =>
+  Effect.gen(function* () {
+    const runStream = yield* RunStreamService;
 
-const parseJsonValue = (value: unknown) => {
-  if (typeof value !== "string") {
-    return value;
-  }
-
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-};
-
-const parseReadFileArgs = (value: unknown) => {
-  const parsed = parseJsonValue(value);
-  return isReadFileToolArgs(parsed) ? parsed : null;
-};
-
-const parseExecCommandArgs = (value: unknown) => {
-  const parsed = parseJsonValue(value);
-  return isExecCommandToolArgs(parsed) ? parsed : null;
-};
-
-const extractTextContent = (value: unknown) => {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (!Array.isArray(value)) {
-    return "";
-  }
-
-  return value
-    .flatMap((part) => {
-      if (
-        typeof part === "object" &&
-        part !== null &&
-        "text" in part &&
-        typeof part.text === "string"
-      ) {
-        return [part.text];
-      }
-
-      return [];
-    })
-    .join("\n\n");
-};
-
-const extractReasoningContent = (value: unknown) => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.flatMap((part) => {
-    if (
-      isRecord(part) &&
-      part.type === "thinking" &&
-      typeof part.thinking === "string" &&
-      part.thinking.trim().length > 0
-    ) {
-      return [
-        {
-          thinking: part.thinking,
-          ...(typeof part.thinkingSignature === "string"
-            ? { thinkingSignature: part.thinkingSignature }
-            : {}),
-          ...(typeof part.redacted === "boolean" ? { redacted: part.redacted } : {}),
-        },
-      ];
-    }
-
-    return [];
+    yield* runStream.appendEvent({
+      runId,
+      event: {
+        type: "run_error",
+        message,
+        timestamp: Date.now(),
+      } satisfies AgentPromptStreamEvent,
+    });
+    yield* runStream.markFailed({
+      runId,
+      threadId,
+      message,
+    });
   });
-};
 
-const extractRunMetrics = (event: AgentEvent) => {
-  if (!isRecord(event) || !("runMetrics" in event)) {
-    return null;
-  }
+const executeAgentRun = ({
+  runId,
+  userId,
+  body,
+}: {
+  runId: string;
+  userId: string;
+  body: Schema.Schema.Type<typeof PromptThreadAgentRequestInputSchema>;
+}) =>
+  Effect.gen(function* () {
+    const runStream = yield* RunStreamService;
+    const agent = yield* AgentService;
+    const executionExit = yield* Effect.exit(
+      agent.promptThread({
+        ...body,
+        userId,
+      }),
+    );
 
-  return isAgentRunMetrics(event.runMetrics) ? event.runMetrics : null;
-};
+    if (executionExit._tag === "Failure") {
+      const message = "The agent run failed.";
 
-const normalizeAgentEvent = (event: AgentEvent): AgentPromptStreamEvent[] => {
-  const timestamp = Date.now();
+      yield* appendRunErrorEvent({
+        runId,
+        threadId: body.threadId,
+        message,
+      });
 
-  switch (event.type) {
-    case "message_update":
-      switch (event.assistantMessageEvent.type) {
-        case "text_delta":
-          return [
-            {
-              type: "assistant_text_delta",
-              delta: event.assistantMessageEvent.delta,
-              usage: event.assistantMessageEvent.partial.usage,
-              timestamp,
-            },
-          ];
-        case "thinking_start":
-          return [
-            {
-              type: "reasoning_start",
-              timestamp,
-            },
-          ];
-        case "thinking_delta":
-          return [
-            {
-              type: "reasoning_delta",
-              delta: event.assistantMessageEvent.delta,
-              timestamp,
-            },
-          ];
-        case "thinking_end":
-          return [
-            {
-              type: "reasoning_end",
-              timestamp,
-            },
-          ];
-        default:
-          return [];
-      }
-    case "message_end": {
-      if (event.message.role !== "assistant") {
-        return [];
-      }
-
-      const content = extractTextContent(event.message.content);
-      const reasoning = extractReasoningContent(event.message.content);
-
-      return [
-        {
-          type: "assistant_message",
-          content,
-          reasoning,
-          usage: event.message.usage,
-          api: event.message.api,
-          provider: event.message.provider,
-          model: event.message.model,
-          errorMessage: event.message.errorMessage,
-          timestamp,
-        },
-      ];
+      return yield* Effect.fail(
+        new AgentRequestError({
+          status: 500,
+          message,
+          cause: executionExit.cause,
+        }),
+      );
     }
-    case "tool_execution_start":
-      if (event.toolName === "read_file") {
-        return [
-          {
-            type: "tool_call_start",
-            toolType: "read_file",
-            toolCallId: event.toolCallId,
-            args: parseReadFileArgs(event.args),
-            timestamp,
-          },
-        ];
-      }
 
-      if (event.toolName === "exec_command") {
-        return [
-          {
-            type: "tool_call_start",
-            toolType: "exec_command",
-            toolCallId: event.toolCallId,
-            args: parseExecCommandArgs(event.args),
-            timestamp,
-          },
-        ];
-      }
+    const execution = executionExit.value;
 
-      return [
-        {
-          type: "tool_call_start",
-          toolType: "unknown",
-          toolName: event.toolName,
-          toolCallId: event.toolCallId,
-          args: event.args,
-          timestamp,
-        },
-      ];
-    case "tool_execution_end": {
-      const result = isRecord(event.result) ? event.result : null;
-      const details = parseJsonValue(result?.details);
-      const content = extractTextContent(result?.content);
+    yield* runStream.markRunning({
+      runId,
+      sandboxId: execution.sandboxId,
+      model: execution.model,
+    });
+    yield* runStream.appendEvent({
+      runId,
+      event: {
+        type: "ready",
+        threadId: execution.threadId,
+        sandboxId: execution.sandboxId,
+        model: execution.model,
+        timestamp: Date.now(),
+      },
+    });
 
-      if (event.toolName === "read_file") {
-        return [
-          {
-            type: "tool_call_end",
-            toolType: "read_file",
-            toolCallId: event.toolCallId,
-            isError: event.isError,
-            content,
-            details: isSandboxReadFileResult(details) ? details : null,
-            timestamp,
-          },
-        ];
-      }
+    yield* Effect.tryPromise({
+      try: async () => {
+        try {
+          for await (const agentEvent of execution.events) {
+            const normalizedEvents = normalizeAgentEvent(agentEvent);
 
-      if (event.toolName === "exec_command") {
-        const normalizedDetails = isSandboxExecuteCommandResult(details) ? details : null;
+            for (const normalizedEvent of normalizedEvents) {
+              await runtime.runPromise(
+                Effect.gen(function* () {
+                  const backgroundRunStream = yield* RunStreamService;
+                  yield* backgroundRunStream.appendEvent({
+                    runId,
+                    event: normalizedEvent,
+                  });
+                }),
+              );
+            }
+          }
 
-        return [
-          {
-            type: "tool_call_end",
-            toolType: "exec_command",
-            toolCallId: event.toolCallId,
-            isError: event.isError || (normalizedDetails?.exitCode ?? 0) !== 0,
-            content,
-            details: normalizedDetails,
-            timestamp,
-          },
-        ];
-      }
+          await runtime.runPromise(
+            Effect.gen(function* () {
+              const backgroundRunStream = yield* RunStreamService;
+              yield* backgroundRunStream.markCompleted({
+                runId,
+                threadId: body.threadId,
+              });
+            }),
+          );
+        } catch (cause) {
+          const message = cause instanceof Error ? cause.message : "The agent run failed.";
 
-      return [
-        {
-          type: "tool_call_end",
-          toolType: "unknown",
-          toolName: event.toolName,
-          toolCallId: event.toolCallId,
-          isError: event.isError,
-          content,
-          details,
-          timestamp,
-        },
-      ];
-    }
-    case "agent_end":
-      return [
-        ...(extractRunMetrics(event)
-          ? [
-              {
-                type: "run_metrics" as const,
-                metrics: extractRunMetrics(event)!,
-                timestamp,
-              },
-            ]
-          : []),
-        {
-          type: "done",
-          timestamp,
-        },
-      ];
-    default:
-      return [];
-  }
-};
+          await runtime.runPromise(
+            appendRunErrorEvent({
+              runId,
+              threadId: body.threadId,
+              message,
+            }),
+          );
+
+          throw cause;
+        }
+      },
+      catch: (cause) =>
+        new AgentRequestError({
+          status: 500,
+          message: cause instanceof Error ? cause.message : "The agent run failed.",
+          cause,
+        }),
+    });
+  });
 
 export const POST: RequestHandler = async (event) => {
   try {
-    const stream = await runtime.runPromise(
+    const response = await runtime.runPromise(
       Effect.gen(function* () {
         const auth = yield* AuthService;
         const user = yield* auth.validateSession(event).pipe(
@@ -302,6 +172,7 @@ export const POST: RequestHandler = async (event) => {
           ),
         );
         const autumn = yield* AutumnService;
+        const runStream = yield* RunStreamService;
         const body = yield* Effect.tryPromise({
           try: () => event.request.json(),
           catch: (cause) =>
@@ -311,8 +182,8 @@ export const POST: RequestHandler = async (event) => {
               cause,
             }),
         }).pipe(
-          Effect.flatMap((body) =>
-            Schema.decodeUnknownEffect(PromptThreadAgentRequestInputSchema)(body).pipe(
+          Effect.flatMap((value) =>
+            Schema.decodeUnknownEffect(PromptThreadAgentRequestInputSchema)(value).pipe(
               Effect.mapError(
                 (cause) =>
                   new AgentRequestError({
@@ -340,43 +211,32 @@ export const POST: RequestHandler = async (event) => {
           );
         }
 
-        const agent = yield* AgentService;
-        const { events, sandboxId, threadId, model } = yield* agent.promptThread({
-          ...body,
+        const run = yield* runStream.createRun({
+          threadId: body.threadId,
           userId: user.userId,
+          prompt: body.prompt,
+          attachmentIds: body.attachmentIds ?? [],
         });
-        const eventStream = Stream.succeed<AgentPromptStreamEvent>({
-          type: "ready",
-          threadId,
-          sandboxId,
-          model,
-          timestamp: Date.now(),
-        }).pipe(
-          Stream.concat(
-            Stream.fromAsyncIterable(
-              events,
-              (cause) => new AgentAsyncIterableError({ cause }),
-            ).pipe(Stream.flatMap((event) => Stream.fromIterable(normalizeAgentEvent(event)))),
+
+        waitUntil(
+          runtime.runPromise(
+            executeAgentRun({
+              runId: run.runId,
+              userId: user.userId,
+              body,
+            }),
           ),
-          Stream.map(toServerSentEvent),
-          Stream.encodeText,
         );
 
-        const readableStream: ReadableStream<Uint8Array> =
-          yield* Stream.toReadableStreamEffect(eventStream);
-
-        return readableStream;
+        return {
+          runId: run.runId,
+          threadId: body.threadId,
+          streamPath: `/api/agent/runs/${encodeURIComponent(run.runId)}/stream`,
+        } satisfies AgentRunStartResponse;
       }),
     );
 
-    return new Response(stream, {
-      headers: {
-        "cache-control": "no-cache, no-transform",
-        connection: "keep-alive",
-        "content-type": "text/event-stream; charset=utf-8",
-        "x-accel-buffering": "no",
-      },
-    });
+    return json(response);
   } catch (error) {
     if (error instanceof AgentRequestError) {
       if (error.status === 401) {
@@ -415,5 +275,3 @@ export const POST: RequestHandler = async (event) => {
     );
   }
 };
-
-const toServerSentEvent = (event: AgentPromptStreamEvent) => `data: ${JSON.stringify(event)}\n\n`;

@@ -26,7 +26,9 @@
 	import type { AgentModelId, AgentModelOption } from '$lib/models';
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 	import type {
+		ActiveAgentRunResponse,
 		AgentReasoningContentPart,
+		AgentRunStartResponse,
 		AgentRunMetrics,
 		AgentPromptStreamEvent,
 		AgentToolCallEndEvent,
@@ -187,9 +189,15 @@
 		end: number;
 	}
 
+	interface RunResumeState {
+		runId: string;
+		lastEventId: string | null;
+	}
+
 	const authContext = getAuthContext();
 	const convex = useConvexClient();
 	const attachmentUploader = createUploadThing('agentAttachment', {});
+	const RUN_RESUME_STORAGE_KEY = 'bc-agent-run-resume';
 	const createId = () => crypto.randomUUID();
 	const createThreadId = () => `chat-${crypto.randomUUID()}`;
 	const isAgentModelId = (value: string | null | undefined): value is AgentModelId =>
@@ -1009,6 +1017,7 @@
 	let threadAttachmentCache: Record<string, ThreadAttachment[]> = {};
 	let threadPersistedMessageCountCache: Record<string, number> = {};
 	let currentRequest: AbortController | null = null;
+	let resumingThreadId = $state<string | null>(null);
 	let hasLoggedResourceLoadStart = false;
 	let pendingDefaultModelId = $state<AgentModelId | null>(null);
 	let pendingThreadModelIds = $state<Record<string, AgentModelId>>({});
@@ -1277,6 +1286,34 @@
 				timestamp: Date.now()
 			});
 		}
+	});
+
+	$effect(() => {
+		if (
+			!authContext.currentUser ||
+			!threadId ||
+			isStreaming ||
+			resumingThreadId === threadId ||
+			threadQuery.isLoading ||
+			threadQuery.data?.thread.threadId !== threadId ||
+			threadQuery.data.thread.status !== 'running'
+		) {
+			return;
+		}
+
+		void resumeActiveRun(threadId);
+	});
+
+	$effect(() => {
+		if (!threadId || threadQuery.data?.thread.threadId !== threadId) {
+			return;
+		}
+
+		if (threadQuery.data.thread.status === 'running') {
+			return;
+		}
+
+		clearRunResumeState(threadId);
 	});
 
 	let upScrollCursor = $state<number | null>(null);
@@ -1614,18 +1651,70 @@
 		threadPersistedMessageCountCache[targetThreadId] = count;
 	}
 
-	function parseAgentStreamEvent(block: string) {
-		const data = block
-			.split('\n')
+	function readRunResumeStateMap() {
+		if (typeof sessionStorage === 'undefined') {
+			return {} as Record<string, RunResumeState>;
+		}
+
+		try {
+			const raw = sessionStorage.getItem(RUN_RESUME_STORAGE_KEY);
+
+			if (!raw) {
+				return {} as Record<string, RunResumeState>;
+			}
+
+			return JSON.parse(raw) as Record<string, RunResumeState>;
+		} catch {
+			return {} as Record<string, RunResumeState>;
+		}
+	}
+
+	function getRunResumeState(targetThreadId: string) {
+		return readRunResumeStateMap()[targetThreadId] ?? null;
+	}
+
+	function setRunResumeState(targetThreadId: string, state: RunResumeState) {
+		if (typeof sessionStorage === 'undefined') {
+			return;
+		}
+
+		const nextState = {
+			...readRunResumeStateMap(),
+			[targetThreadId]: state
+		};
+		sessionStorage.setItem(RUN_RESUME_STORAGE_KEY, JSON.stringify(nextState));
+	}
+
+	function clearRunResumeState(targetThreadId: string) {
+		if (typeof sessionStorage === 'undefined') {
+			return;
+		}
+
+		const nextState = Object.fromEntries(
+			Object.entries(readRunResumeStateMap()).filter(([candidateThreadId]) => candidateThreadId !== targetThreadId)
+		) as Record<string, RunResumeState>;
+		sessionStorage.setItem(RUN_RESUME_STORAGE_KEY, JSON.stringify(nextState));
+	}
+
+	function parseAgentStreamBlock(block: string) {
+		const lines = block.split('\n');
+		const data = lines
 			.filter((line) => line.startsWith('data:'))
 			.map((line) => line.slice(5).trimStart())
 			.join('\n');
+		const id = lines
+			.filter((line) => line.startsWith('id:'))
+			.map((line) => line.slice(3).trimStart())
+			.at(-1);
 
 		if (!data) {
 			return null;
 		}
 
-		return JSON.parse(data) as AgentPromptStreamEvent;
+		return {
+			id: id ?? null,
+			event: JSON.parse(data) as AgentPromptStreamEvent
+		};
 	}
 
 	function appendAssistantText(messageId: string, delta: string) {
@@ -2125,6 +2214,22 @@
 				}));
 				isStreaming = false;
 				return;
+			case 'run_error':
+				updateAssistantMessage(assistantId, (message) => ({
+					...message,
+					pending: false
+				}));
+				updateAssistantStats(assistantId, (stats) => ({
+					...stats,
+					liveUsage: null,
+					completedAt: stats.completedAt ?? streamEvent.timestamp,
+					activeToolCallCount: 0,
+					activeToolCallStartedAt: null
+				}));
+				errorMessage = streamEvent.message;
+				appendSystemMessage(streamEvent.message);
+				isStreaming = false;
+				return;
 		}
 	}
 
@@ -2143,7 +2248,13 @@
 		}
 	}
 
-	async function consumeAgentStream(response: Response, assistantId: string) {
+	async function consumeAgentStream(
+		response: Response,
+		assistantId: string,
+		options?: {
+			onEvent?: (data: { id: string | null; event: AgentPromptStreamEvent }) => void;
+		}
+	) {
 		if (!response.body) {
 			throw new Error('The agent stream did not return a readable body.');
 		}
@@ -2153,6 +2264,7 @@
 		let buffer = '';
 		let completed = false;
 		let persistedMessageCount = 1;
+		let lastEventId: string | null = null;
 
 		while (true) {
 			const { done, value } = await reader.read();
@@ -2166,12 +2278,15 @@
 			buffer = blocks.pop() ?? '';
 
 			for (const block of blocks) {
-				const event = parseAgentStreamEvent(block);
+				const parsed = parseAgentStreamBlock(block);
 
-				if (event) {
-					handleStreamEvent(assistantId, event);
-					persistedMessageCount += getPersistedMessageDelta(event);
-					completed = completed || event.type === 'done';
+				if (parsed) {
+					lastEventId = parsed.id ?? lastEventId;
+					options?.onEvent?.(parsed);
+					handleStreamEvent(assistantId, parsed.event);
+					persistedMessageCount += getPersistedMessageDelta(parsed.event);
+					completed =
+						completed || parsed.event.type === 'done' || parsed.event.type === 'run_error';
 				}
 			}
 		}
@@ -2179,19 +2294,79 @@
 		buffer += decoder.decode();
 
 		for (const block of buffer.split('\n\n')) {
-			const event = parseAgentStreamEvent(block);
+			const parsed = parseAgentStreamBlock(block);
 
-			if (event) {
-				handleStreamEvent(assistantId, event);
-				persistedMessageCount += getPersistedMessageDelta(event);
-				completed = completed || event.type === 'done';
+			if (parsed) {
+				lastEventId = parsed.id ?? lastEventId;
+				options?.onEvent?.(parsed);
+				handleStreamEvent(assistantId, parsed.event);
+				persistedMessageCount += getPersistedMessageDelta(parsed.event);
+				completed =
+					completed || parsed.event.type === 'done' || parsed.event.type === 'run_error';
 			}
 		}
 
 		return {
 			completed,
-			persistedMessageCount
+			persistedMessageCount,
+			lastEventId
 		};
+	}
+
+	async function consumeAgentRunStream({
+		streamPath,
+		assistantId,
+		controller,
+		after,
+		onEvent
+	}: {
+		streamPath: string;
+		assistantId: string;
+		controller: AbortController;
+		after?: string | null;
+		onEvent?: (data: { id: string | null; event: AgentPromptStreamEvent }) => void;
+	}) {
+		const streamUrl = new URL(streamPath, window.location.origin);
+
+		if (after) {
+			streamUrl.searchParams.set('after', after);
+		}
+
+		const response = await fetch(streamUrl, {
+			method: 'GET',
+			headers: {
+				accept: 'text/event-stream'
+			},
+			signal: controller.signal
+		});
+
+		if (!response.ok) {
+			const payload = (await response.json().catch(() => null)) as {
+				message?: string;
+			} | null;
+			throw new Error(payload?.message ?? 'The agent stream request failed.');
+		}
+
+		return consumeAgentStream(response, assistantId, { onEvent });
+	}
+
+	async function getActiveRun(threadId: string) {
+		const url = new URL(resolve('/api/agent/runs/active'), window.location.origin);
+		url.searchParams.set('threadId', threadId);
+		const response = await fetch(url);
+
+		if (response.status === 404) {
+			return null;
+		}
+
+		if (!response.ok) {
+			const payload = (await response.json().catch(() => null)) as {
+				message?: string;
+			} | null;
+			throw new Error(payload?.message ?? 'Failed to load the active chat run.');
+		}
+
+		return (await response.json()) as ActiveAgentRunResponse | null;
 	}
 
 	async function submitPrompt(
@@ -2302,13 +2477,29 @@
 				throw new Error(payload?.message ?? 'The agent stream request failed.');
 			}
 
-			const streamResult = await consumeAgentStream(response, assistantId);
+			const payload = (await response.json()) as AgentRunStartResponse;
+			setRunResumeState(activeThreadId, {
+				runId: payload.runId,
+				lastEventId: null
+			});
+			const streamResult = await consumeAgentRunStream({
+				streamPath: payload.streamPath,
+				assistantId,
+				controller,
+				onEvent: ({ id }) => {
+					setRunResumeState(activeThreadId, {
+						runId: payload.runId,
+						lastEventId: id
+					});
+				}
+			});
 
 			if (streamResult.completed) {
 				setThreadPersistedMessageCount(
 					activeThreadId,
 					nextUserSequence + streamResult.persistedMessageCount
 				);
+				clearRunResumeState(activeThreadId);
 			}
 		} catch (error) {
 			if (controller.signal.aborted) {
@@ -2340,6 +2531,112 @@
 			void tick().then(() => {
 				composer?.focus();
 			});
+		}
+	}
+
+	async function resumeActiveRun(targetThreadId: string) {
+		if (isStreaming || resumingThreadId === targetThreadId) {
+			return;
+		}
+
+		resumingThreadId = targetThreadId;
+		let controller: AbortController | null = null;
+		let assistantId: string | null = null;
+
+		try {
+			const activeRun = await getActiveRun(targetThreadId);
+
+			if (!activeRun || threadId !== targetThreadId || isStreaming) {
+				return;
+			}
+
+			const nextUserSequence = getThreadPersistedMessageCount(targetThreadId);
+			const existingPendingAssistant = [...messages]
+				.reverse()
+				.find(
+					(message): message is AssistantMessage => message.role === 'assistant' && message.pending
+				);
+			const resumeState = getRunResumeState(targetThreadId);
+			const resumeAfter =
+				existingPendingAssistant && resumeState?.runId === activeRun.runId
+					? resumeState.lastEventId
+					: null;
+
+			assistantId = existingPendingAssistant?.id ?? createId();
+
+			if (!existingPendingAssistant) {
+				const selectedAttachments = attachments.filter((attachment) =>
+					activeRun.attachmentIds.includes(attachment.id)
+				);
+				const userMessageId = createId();
+
+				messages = [
+					...messages,
+					{
+						id: userMessageId,
+						role: 'user',
+						content: activeRun.prompt,
+						attachments: cloneThreadAttachments(selectedAttachments),
+						createdAt: Date.now(),
+						persistedSequence: nextUserSequence
+					},
+					{
+						id: assistantId,
+						role: 'assistant',
+						parts: [],
+						createdAt: Date.now(),
+						pending: true,
+						stats: createAssistantStats(selectedModel)
+					}
+				];
+			}
+
+			isStreaming = true;
+			controller = new AbortController();
+			currentRequest = controller;
+			const streamResult = await consumeAgentRunStream({
+				streamPath: activeRun.streamPath,
+				assistantId,
+				controller,
+				after: resumeAfter,
+				onEvent: ({ id }) => {
+					setRunResumeState(targetThreadId, {
+						runId: activeRun.runId,
+						lastEventId: id
+					});
+				}
+			});
+
+			if (streamResult.completed) {
+				setThreadPersistedMessageCount(
+					targetThreadId,
+					nextUserSequence + streamResult.persistedMessageCount
+				);
+				clearRunResumeState(targetThreadId);
+			}
+		} catch (error) {
+			if (controller?.signal.aborted) {
+				return;
+			}
+
+			const message = getHumanErrorMessage(error, 'The chat request failed.');
+			errorMessage = message;
+			if (assistantId) {
+				updateAssistantMessage(assistantId, (current) => ({ ...current, pending: false }));
+			}
+			appendSystemMessage(message);
+		} finally {
+			if (currentRequest === controller) {
+				currentRequest = null;
+			}
+
+			if (threadId === targetThreadId) {
+				isStreaming = false;
+			}
+
+			if (resumingThreadId === targetThreadId) {
+				resumingThreadId = null;
+			}
 		}
 	}
 

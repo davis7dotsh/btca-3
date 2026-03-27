@@ -498,6 +498,12 @@
   .bc-threadItem-active {
     border-color: color-mix(in oklab, hsl(var(--bc-accent)) 45%, hsl(var(--bc-border)));
     background: hsl(var(--bc-surface));
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, hsl(var(--bc-accent)) 22%, transparent);
+  }
+
+  .bc-threadItem-active:hover {
+    border-color: color-mix(in oklab, hsl(var(--bc-accent)) 55%, hsl(var(--bc-border)));
+    background: hsl(var(--bc-surface));
   }
 
   .bc-threadItemDelete {
