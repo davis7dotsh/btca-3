@@ -1,12 +1,6 @@
 import type { TaggedResourcePromptResource } from "$lib/types/resources";
 
-export const resourceItemKindLabels = {
-  git_repo: "Git repo",
-  npm_package: "NPM package",
-  website: "Website",
-} as const;
-
-export const normalizeResourceSlug = (value: string) => {
+export const normalizeResourceName = (value: string) => {
   const normalized = value
     .trim()
     .toLowerCase()
@@ -17,23 +11,21 @@ export const normalizeResourceSlug = (value: string) => {
   return normalized.length > 0 ? normalized : "resource";
 };
 
-export const createResourceSlugFromName = (value: string) => normalizeResourceSlug(value);
-
-export const extractTaggedResourceSlugs = (value: string) => {
+export const extractTaggedResourceNames = (value: string) => {
   const matches = value.matchAll(/(^|[\s([{"'])@([a-zA-Z0-9][a-zA-Z0-9-]*)/g);
-  const slugs = new Set<string>();
+  const names = new Set<string>();
 
   for (const match of matches) {
-    const slug = match[2];
+    const name = match[2];
 
-    if (!slug) {
+    if (!name) {
       continue;
     }
 
-    slugs.add(normalizeResourceSlug(slug));
+    names.add(normalizeResourceName(name));
   }
 
-  return [...slugs];
+  return [...names];
 };
 
 const escapeXml = (value: string) =>
@@ -54,17 +46,13 @@ export const buildTaggedResourcesXml = (resources: readonly TaggedResourcePrompt
 
   const xml = resources
     .map((resource) => {
-      const notes = renderOptionalTag("notes", resource.notes);
       const items = resource.items
         .map((item) =>
           [
             "      <item>",
-            `        <kind>${escapeXml(item.kind)}</kind>`,
             `        <name>${escapeXml(item.name)}</name>`,
-            `        <description>${escapeXml(item.description)}</description>`,
+            renderOptionalTag("description", item.description),
             `        <url>${escapeXml(item.url)}</url>`,
-            renderOptionalTag("branch", item.branch),
-            renderOptionalTag("package_name", item.packageName),
             "      </item>",
           ]
             .filter((line): line is string => line !== null)
@@ -75,8 +63,6 @@ export const buildTaggedResourcesXml = (resources: readonly TaggedResourcePrompt
       return [
         "  <resource>",
         `    <name>${escapeXml(resource.name)}</name>`,
-        `    <slug>${escapeXml(resource.slug)}</slug>`,
-        notes,
         "    <items>",
         items,
         "    </items>",

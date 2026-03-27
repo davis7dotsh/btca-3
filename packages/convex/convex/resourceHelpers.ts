@@ -1,27 +1,7 @@
-import { v } from "convex/values";
+const ICON_LINK_PATTERN =
+  /<link\b[^>]*rel=["'][^"']*(?:icon|apple-touch-icon)[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>/gi;
 
-export const resourceItemKindValidator = v.union(
-  v.literal("git_repo"),
-  v.literal("npm_package"),
-  v.literal("website"),
-);
-
-export const normalizeResourceName = (value: string) => value.trim().replace(/\s+/g, " ");
-
-export const normalizeResourceDescription = (value: string) => value.trim().replace(/\s+/g, " ");
-
-export const normalizeResourceSlug = (value: string) => {
-  const normalized = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .replace(/-{2,}/g, "-");
-
-  return normalized.length > 0 ? normalized : "resource";
-};
-
-const trimTrailingSlash = (value: string) => value.replace(/\/+$/g, "");
+const normalizeWhitespace = (value: string) => value.trim().replace(/\s+/g, " ");
 
 const parseUrl = (value: string) => {
   try {
@@ -31,128 +11,113 @@ const parseUrl = (value: string) => {
   }
 };
 
-const normalizeUrl = (value: string) => {
+export const normalizeResourceName = (value: string) => {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+
+  if (normalized.length === 0) {
+    throw new Error("Expected a resource name.");
+  }
+
+  return normalized;
+};
+
+export const normalizeResourceItemName = (value: string) => {
+  const normalized = normalizeWhitespace(value);
+
+  if (normalized.length === 0) {
+    throw new Error("Expected an item name.");
+  }
+
+  return normalized;
+};
+
+export const normalizeResourceItemDescription = (value: string) => {
+  const normalized = normalizeWhitespace(value);
+
+  return normalized.length > 0 ? normalized : undefined;
+};
+
+export const normalizeResourceItemUrl = (value: string) => {
   const parsed = parseUrl(value.trim());
   parsed.hash = "";
-  parsed.search = "";
 
   return parsed.toString();
 };
 
-const normalizeRepoPath = (pathname: string) =>
-  trimTrailingSlash(pathname)
-    .replace(/\.git$/i, "")
-    .replace(/^\/+/, "");
+const getIconCandidates = (html: string, pageUrl: URL) => {
+  const candidates = new Set<string>();
 
-const getPackageUrl = (packageName: string) => `https://www.npmjs.com/package/${packageName}`;
+  for (const match of html.matchAll(ICON_LINK_PATTERN)) {
+    const href = match[1]?.trim();
 
-const getCanonicalWebsiteUrl = (url: string) => trimTrailingSlash(normalizeUrl(url));
-
-export const buildResourceItemFields = ({
-  kind,
-  name,
-  description,
-  url,
-  packageName,
-  branch,
-}: {
-  kind: "git_repo" | "npm_package" | "website";
-  name: string;
-  description: string;
-  url?: string;
-  packageName?: string;
-  branch?: string;
-}) => {
-  const normalizedName = normalizeResourceName(name);
-  const normalizedDescription = normalizeResourceDescription(description);
-  const normalizedPackageName = packageName?.trim();
-  const normalizedBranch = branch?.trim() || "main";
-
-  if (!normalizedName) {
-    throw new Error("Expected an item name.");
-  }
-
-  if (!normalizedDescription) {
-    throw new Error("Expected an item description.");
-  }
-
-  switch (kind) {
-    case "git_repo": {
-      if (!url?.trim()) {
-        throw new Error("Git repo items require a URL.");
-      }
-
-      const normalizedUrl = normalizeUrl(url);
-      const parsed = parseUrl(normalizedUrl);
-      const repoPath = normalizeRepoPath(parsed.pathname);
-      const [repoOwner, repoName] = repoPath.split("/");
-
-      if (!repoOwner || !repoName) {
-        throw new Error("Git repo URLs must include an owner and repository name.");
-      }
-
-      return {
-        kind,
-        name: normalizedName,
-        description: normalizedDescription,
-        url: normalizedUrl,
-        canonicalKey: `git:${parsed.hostname.toLowerCase()}/${repoOwner.toLowerCase()}/${repoName.toLowerCase()}#${normalizedBranch.toLowerCase()}`,
-        repoHost: parsed.hostname.toLowerCase(),
-        repoOwner,
-        repoName,
-        branch: normalizedBranch,
-        packageName: undefined,
-        websiteHost: undefined,
-      };
+    if (!href) {
+      continue;
     }
-    case "npm_package": {
-      const normalizedNameForPackage = normalizedPackageName?.length
-        ? normalizedPackageName
-        : undefined;
 
-      if (!normalizedNameForPackage) {
-        throw new Error("NPM package items require a package name.");
-      }
-
-      const normalizedUrl = url?.trim()
-        ? normalizeUrl(url)
-        : getPackageUrl(normalizedNameForPackage);
-
-      return {
-        kind,
-        name: normalizedName,
-        description: normalizedDescription,
-        url: normalizedUrl,
-        canonicalKey: `npm:${normalizedNameForPackage.toLowerCase()}`,
-        repoHost: undefined,
-        repoOwner: undefined,
-        repoName: undefined,
-        branch: undefined,
-        packageName: normalizedNameForPackage,
-        websiteHost: undefined,
-      };
-    }
-    case "website": {
-      if (!url?.trim()) {
-        throw new Error("Website items require a URL.");
-      }
-
-      const normalizedUrl = getCanonicalWebsiteUrl(url);
-      const parsed = parseUrl(normalizedUrl);
-
-      return {
-        kind,
-        name: normalizedName,
-        description: normalizedDescription,
-        url: normalizedUrl,
-        canonicalKey: `website:${normalizedUrl.toLowerCase()}`,
-        repoHost: undefined,
-        repoOwner: undefined,
-        repoName: undefined,
-        branch: undefined,
-        packageName: undefined,
-        websiteHost: parsed.hostname.toLowerCase(),
-      };
+    try {
+      candidates.add(new URL(href, pageUrl).toString());
+    } catch {
+      continue;
     }
   }
+
+  candidates.add(new URL("/favicon.ico", pageUrl.origin).toString());
+
+  return [...candidates];
+};
+
+const canUseIconResponse = (response: Response) => {
+  if (!response.ok) {
+    return false;
+  }
+
+  const contentType = response.headers.get("content-type");
+
+  return contentType === null || contentType.startsWith("image/");
+};
+
+export const discoverFaviconUrl = async (url: string) => {
+  const pageUrl = parseUrl(url);
+
+  try {
+    const pageResponse = await fetch(pageUrl.toString(), {
+      redirect: "follow",
+      headers: {
+        "user-agent": "btca-resource-icon-fetcher",
+      },
+    });
+
+    if (!pageResponse.ok) {
+      return new URL("/favicon.ico", pageUrl.origin).toString();
+    }
+
+    const html = await pageResponse.text();
+
+    for (const candidate of getIconCandidates(html, pageUrl)) {
+      try {
+        const response = await fetch(candidate, {
+          method: "HEAD",
+          redirect: "follow",
+          headers: {
+            "user-agent": "btca-resource-icon-fetcher",
+          },
+        });
+
+        if (canUseIconResponse(response)) {
+          return candidate;
+        }
+      } catch {
+        continue;
+      }
+    }
+  } catch {
+    return new URL("/favicon.ico", pageUrl.origin).toString();
+  }
+
+  return new URL("/favicon.ico", pageUrl.origin).toString();
 };

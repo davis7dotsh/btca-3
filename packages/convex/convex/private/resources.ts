@@ -1,39 +1,34 @@
 import type { IndexRangeBuilder } from "convex/server";
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
-import { normalizeResourceSlug } from "../resourceHelpers";
+import { normalizeResourceName } from "../resourceHelpers";
 import { privateQuery } from "./helpers";
 
 export const getTaggedResources = privateQuery({
   args: {
     userId: v.string(),
-    slugs: v.array(v.string()),
+    names: v.array(v.string()),
   },
   handler: async (ctx, args) => {
-    const normalizedSlugs = [...new Set(args.slugs.map((slug) => normalizeResourceSlug(slug)))];
+    const normalizedNames = [...new Set(args.names.map((name) => normalizeResourceName(name)))];
     const resources: {
       id: string;
       name: string;
-      slug: string;
-      notes: string | null;
       items: {
         id: string;
-        kind: "git_repo" | "npm_package" | "website";
         name: string;
-        description: string;
+        description: string | null;
         url: string;
-        branch: string | null;
-        packageName: string | null;
       }[];
     }[] = [];
 
-    for (const slug of normalizedSlugs) {
+    for (const name of normalizedNames) {
       const resource = await ctx.db
         .query("resources")
         .withIndex(
-          "by_user_id_and_slug",
-          (query: IndexRangeBuilder<Doc<"resources">, ["userId", "slug"]>) =>
-            query.eq("userId", args.userId).eq("slug", slug),
+          "by_user_id_and_name",
+          (query: IndexRangeBuilder<Doc<"resources">, ["userId", "name"]>) =>
+            query.eq("userId", args.userId).eq("name", name),
         )
         .unique();
 
@@ -58,16 +53,11 @@ export const getTaggedResources = privateQuery({
       resources.push({
         id: resource._id,
         name: resource.name,
-        slug: resource.slug,
-        notes: resource.notes ?? null,
         items: items.map((item: Doc<"resourceItems">) => ({
           id: item._id,
-          kind: item.kind,
           name: item.name,
-          description: item.description,
+          description: item.description ?? null,
           url: item.url,
-          branch: item.branch ?? null,
-          packageName: item.packageName ?? null,
         })),
       });
     }
@@ -109,24 +99,16 @@ export const listForMcp = privateQuery({
         return {
           id: resource._id,
           name: resource.name,
-          slug: resource.slug,
-          notes: resource.notes ?? null,
           createdAt: resource.createdAt,
           updatedAt: resource.updatedAt,
           itemCount: items.length,
           items: includeItems
             ? items.map((item: Doc<"resourceItems">) => ({
                 id: item._id,
-                kind: item.kind,
                 name: item.name,
-                description: item.description,
+                description: item.description ?? null,
                 url: item.url,
-                branch: item.branch ?? null,
-                packageName: item.packageName ?? null,
-                repoHost: item.repoHost ?? null,
-                repoOwner: item.repoOwner ?? null,
-                repoName: item.repoName ?? null,
-                websiteHost: item.websiteHost ?? null,
+                iconUrl: item.iconUrl ?? null,
                 sortOrder: item.sortOrder,
                 createdAt: item.createdAt,
                 updatedAt: item.updatedAt,

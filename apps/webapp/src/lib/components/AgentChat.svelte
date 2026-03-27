@@ -23,7 +23,7 @@
 		findAgentModelOptionForProviderModel,
 		getAgentModelOption
 	} from '$lib/models';
-	import { normalizeResourceSlug } from '$lib/resources';
+	import { normalizeResourceName } from '$lib/resources';
 	import type { AgentModelId, AgentModelOption } from '$lib/models';
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 	import type {
@@ -52,8 +52,6 @@
 	interface ResourceListItem {
 		id: string;
 		name: string;
-		slug: string;
-		notes: string | null;
 		createdAt: number;
 		updatedAt: number;
 		itemCount: number;
@@ -1089,8 +1087,6 @@
 		{
 			id: string;
 			name: string;
-			slug: string;
-			notes: string | null;
 			createdAt: number;
 			updatedAt: number;
 			itemCount: number;
@@ -1208,24 +1204,17 @@
 		}
 
 		const rawQuery = mentionState.query.trim();
-		const query = rawQuery.length === 0 ? '' : normalizeResourceSlug(rawQuery);
+		const query = rawQuery.length === 0 ? '' : normalizeResourceName(rawQuery);
 		const rankedMatches = resourceItems
 			.map((resource: ResourceListItem) => {
-				const slug = resource.slug.toLowerCase();
 				const name = resource.name.toLowerCase();
 				let score = 0;
 
 				if (query.length === 0) {
 					score = 1;
-				} else if (slug === query) {
-					score = 6;
 				} else if (name === query) {
-					score = 5;
-				} else if (slug.startsWith(query)) {
-					score = 4;
+					score = 6;
 				} else if (name.startsWith(query)) {
-					score = 3;
-				} else if (slug.includes(query)) {
 					score = 2;
 				} else if (name.includes(query)) {
 					score = 1;
@@ -2822,12 +2811,12 @@
 		mentionMenuIndex = 0;
 	}
 
-	async function insertMention(slug: string) {
-		if (!mentionState || !composer || !slug) {
+	async function insertMention(name: string) {
+		if (!mentionState || !composer || !name) {
 			return;
 		}
 
-		const mention = `@${slug}`;
+		const mention = `@${name}`;
 		const suffix = draft.slice(mentionState.end);
 		const needsSpace = suffix.length > 0 && !/^\s/u.test(suffix);
 		const nextDraft = `${draft.slice(0, mentionState.start)}${mention}${needsSpace ? ' ' : ''}${suffix}`;
@@ -2875,7 +2864,7 @@
 
 			if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
 				event.preventDefault();
-				void insertMention(resourceMentionSuggestions[mentionMenuIndex]?.slug ?? '');
+				void insertMention(resourceMentionSuggestions[mentionMenuIndex]?.name ?? '');
 				return;
 			}
 		}
@@ -3607,21 +3596,14 @@
 											'w-full border-b border-[hsl(var(--bc-border))/0.45] px-4 py-3 text-left last:border-b-0',
 											index === mentionMenuIndex && 'bg-[hsl(var(--bc-surface-2))]'
 										]}
-										onclick={() => void insertMention(resource.slug)}
+										onclick={() => void insertMention(resource.name)}
 									>
 										<div class="flex items-start justify-between gap-3">
 											<div class="space-y-1">
 												<div class="flex flex-wrap items-center gap-2">
 													<span class="font-medium">{resource.name}</span>
-													<span class="text-xs text-[hsl(var(--bc-fg-muted))]">
-														@{resource.slug}
-													</span>
+													<span class="text-xs text-[hsl(var(--bc-fg-muted))]">@{resource.name}</span>
 												</div>
-												{#if resource.notes}
-													<p class="text-sm text-[hsl(var(--bc-fg-muted))]">
-														{resource.notes}
-													</p>
-												{/if}
 											</div>
 											<span class="shrink-0 text-xs text-[hsl(var(--bc-fg-muted))]">
 												{resource.itemCount} items

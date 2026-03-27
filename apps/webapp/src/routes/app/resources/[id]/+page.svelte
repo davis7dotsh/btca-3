@@ -7,8 +7,6 @@
 	import type { Id } from '@btca/convex/data-model';
 	import { api } from '@btca/convex/api';
 	import { getHumanErrorMessage } from '$lib/errors';
-	import { resourceItemKindLabels } from '$lib/resources';
-	import { resourceItemKinds, type ResourceItemKind } from '$lib/types/resources';
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 
 	type QueryState<T> = {
@@ -17,34 +15,27 @@
 		error: unknown;
 	};
 
-	const authContext = getAuthContext();
-	const convex = browser ? useConvexClient() : null;
-
 	type ItemDraft = {
-		kind: ResourceItemKind;
 		name: string;
 		description: string;
 		url: string;
-		branch: string;
-		packageName: string;
 	};
 
 	type ResourceItemView = {
 		id: string;
-		kind: ResourceItemKind;
 		name: string;
-		description: string;
+		description: string | null;
 		url: string;
-		branch: string | null;
-		packageName: string | null;
+		iconUrl: string | null;
 	};
+
+	const authContext = getAuthContext();
+	const convex = browser ? useConvexClient() : null;
 
 	const resourceId = $derived(page.params.id as Id<'resources'> | undefined);
 
 	let syncedResourceId = $state<string | null>(null);
 	let resourceName = $state('');
-	let resourceSlug = $state('');
-	let resourceNotes = $state('');
 	let resourceError = $state<string | null>(null);
 	let itemError = $state<string | null>(null);
 	let isSavingResource = $state(false);
@@ -52,12 +43,9 @@
 	let editingItemId = $state<string | null>(null);
 	let activeItemMutationId = $state<string | null>(null);
 	let itemDrafts = $state<Record<string, ItemDraft>>({});
-	let newItemKind = $state<ResourceItemKind>('git_repo');
 	let newItemName = $state('');
 	let newItemDescription = $state('');
 	let newItemUrl = $state('');
-	let newItemBranch = $state('main');
-	let newItemPackageName = $state('');
 	let isCreatingItem = $state(false);
 
 	const resourceQuery: QueryState<
@@ -65,8 +53,6 @@
 				resource: {
 					id: string;
 					name: string;
-					slug: string;
-					notes: string | null;
 					createdAt: number;
 					updatedAt: number;
 				};
@@ -88,12 +74,9 @@
 	const items = $derived(resourceQuery.data?.items ?? []);
 
 	const createDraft = (item: ResourceItemView): ItemDraft => ({
-		kind: item.kind,
 		name: item.name,
-		description: item.description,
-		url: item.url,
-		branch: item.branch ?? 'main',
-		packageName: item.packageName ?? ''
+		description: item.description ?? '',
+		url: item.url
 	});
 
 	$effect(() => {
@@ -105,21 +88,14 @@
 
 		syncedResourceId = data.resource.id;
 		resourceName = data.resource.name;
-		resourceSlug = data.resource.slug;
-		resourceNotes = data.resource.notes ?? '';
-		itemDrafts = Object.fromEntries(
-			data.items.map((item: ResourceItemView) => [item.id, createDraft(item)])
-		);
+		itemDrafts = Object.fromEntries(data.items.map((item) => [item.id, createDraft(item)]));
 		editingItemId = null;
 	});
 
 	function resetNewItemForm() {
-		newItemKind = 'git_repo';
 		newItemName = '';
 		newItemDescription = '';
 		newItemUrl = '';
-		newItemBranch = 'main';
-		newItemPackageName = '';
 	}
 
 	function beginItemEdit(item: ResourceItemView) {
@@ -145,9 +121,7 @@
 		try {
 			await convex.mutation(api.authed.resources.update, {
 				resourceId,
-				name: resourceName,
-				slug: resourceSlug,
-				notes: resourceNotes.trim() || undefined
+				name: resourceName
 			});
 		} catch (error) {
 			resourceError = getHumanErrorMessage(error, 'Failed to save the resource.');
@@ -189,12 +163,9 @@
 		try {
 			await convex.mutation(api.authed.resources.createItem, {
 				resourceId,
-				kind: newItemKind,
 				name: newItemName,
-				description: newItemDescription,
-				url: newItemUrl.trim() || undefined,
-				branch: newItemBranch.trim() || undefined,
-				packageName: newItemPackageName.trim() || undefined
+				description: newItemDescription.trim() || undefined,
+				url: newItemUrl
 			});
 			resetNewItemForm();
 		} catch (error) {
@@ -217,12 +188,9 @@
 		try {
 			await convex.mutation(api.authed.resources.updateItem, {
 				itemId: itemId as Id<'resourceItems'>,
-				kind: draft.kind,
 				name: draft.name,
-				description: draft.description,
-				url: draft.url.trim() || undefined,
-				branch: draft.branch.trim() || undefined,
-				packageName: draft.packageName.trim() || undefined
+				description: draft.description.trim() || undefined,
+				url: draft.url
 			});
 			editingItemId = null;
 		} catch (error) {
@@ -300,7 +268,7 @@
 				</span>
 			</nav>
 			<h1 class="bc-title text-2xl">
-				{resourceQuery.data?.resource.name ?? 'Loading...'}
+				@{resourceQuery.data?.resource.name ?? 'loading'}
 			</h1>
 		</header>
 
@@ -329,31 +297,9 @@
 							<input
 								bind:value={resourceName}
 								class="w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
-								placeholder="Svelte"
+								placeholder="svelte"
 							/>
-						</label>
-
-						<label class="block space-y-1.5">
-							<span class="text-sm font-medium">Mention slug</span>
-							<div
-								class="flex items-center border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm focus-within:border-[hsl(var(--bc-accent))]"
-							>
-								<span class="mr-1 text-[hsl(var(--bc-fg-muted))]">@</span>
-								<input
-									bind:value={resourceSlug}
-									class="w-full bg-transparent outline-none"
-									placeholder="svelte"
-								/>
-							</div>
-						</label>
-
-						<label class="block space-y-1.5">
-							<span class="text-sm font-medium">Agent notes</span>
-							<textarea
-								bind:value={resourceNotes}
-								class="bc-scrollbar min-h-28 w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
-								placeholder="Optional guidance or framing for the agent."
-							></textarea>
+							<p class="bc-muted text-xs">This is the exact `@mention` token.</p>
 						</label>
 
 						{#if resourceError}
@@ -384,36 +330,15 @@
 					</div>
 
 					<div
-						class="grid gap-4 border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface))] p-4 md:grid-cols-2"
+						class="grid gap-4 border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface))] p-4"
 					>
-						<label class="block space-y-1.5">
-							<span class="text-sm font-medium">Kind</span>
-							<select
-								bind:value={newItemKind}
-								class="w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
-							>
-								{#each resourceItemKinds as kind (kind)}
-									<option value={kind}>{resourceItemKindLabels[kind]}</option>
-								{/each}
-							</select>
-						</label>
-
 						<label class="block space-y-1.5">
 							<span class="text-sm font-medium">Name</span>
 							<input
 								bind:value={newItemName}
 								class="w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
-								placeholder="Core repo"
+								placeholder="Svelte docs"
 							/>
-						</label>
-
-						<label class="block space-y-1.5 md:col-span-2">
-							<span class="text-sm font-medium">Description</span>
-							<textarea
-								bind:value={newItemDescription}
-								class="bc-scrollbar min-h-20 w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
-								placeholder="Explain why this item matters and what the agent should use it for."
-							></textarea>
 						</label>
 
 						<label class="block space-y-1.5">
@@ -421,35 +346,20 @@
 							<input
 								bind:value={newItemUrl}
 								class="w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
-								placeholder={newItemKind === 'npm_package'
-									? 'Optional if package name is enough'
-									: 'https://...'}
+								placeholder="https://svelte.dev"
 							/>
 						</label>
 
-						{#if newItemKind === 'git_repo'}
-							<label class="block space-y-1.5">
-								<span class="text-sm font-medium">Branch</span>
-								<input
-									bind:value={newItemBranch}
-									class="w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
-									placeholder="main"
-								/>
-							</label>
-						{/if}
+						<label class="block space-y-1.5">
+							<span class="text-sm font-medium">Description</span>
+							<textarea
+								bind:value={newItemDescription}
+								class="bc-scrollbar min-h-20 w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
+								placeholder="Optional guidance for what the agent should use this URL for."
+							></textarea>
+						</label>
 
-						{#if newItemKind === 'npm_package'}
-							<label class="block space-y-1.5">
-								<span class="text-sm font-medium">Package name</span>
-								<input
-									bind:value={newItemPackageName}
-									class="w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
-									placeholder="@sveltejs/kit"
-								/>
-							</label>
-						{/if}
-
-						<div class="flex items-center justify-between gap-3 md:col-span-2">
+						<div class="flex items-center justify-between gap-3">
 							{#if itemError}
 								<p class="text-sm text-red-500">{itemError}</p>
 							{/if}
@@ -469,33 +379,13 @@
 							{#each items as item, index (item.id)}
 								<div class="border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface))] p-4">
 									{#if editingItemId === item.id}
-										<div class="grid gap-4 md:grid-cols-2">
-											<label class="block space-y-1.5">
-												<span class="text-sm font-medium">Kind</span>
-												<select
-													bind:value={itemDrafts[item.id].kind}
-													class="w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
-												>
-													{#each resourceItemKinds as kind (kind)}
-														<option value={kind}>{resourceItemKindLabels[kind]}</option>
-													{/each}
-												</select>
-											</label>
-
+										<div class="grid gap-4">
 											<label class="block space-y-1.5">
 												<span class="text-sm font-medium">Name</span>
 												<input
 													bind:value={itemDrafts[item.id].name}
 													class="w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
 												/>
-											</label>
-
-											<label class="block space-y-1.5 md:col-span-2">
-												<span class="text-sm font-medium">Description</span>
-												<textarea
-													bind:value={itemDrafts[item.id].description}
-													class="bc-scrollbar min-h-20 w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
-												></textarea>
 											</label>
 
 											<label class="block space-y-1.5">
@@ -506,26 +396,13 @@
 												/>
 											</label>
 
-											{#if itemDrafts[item.id].kind === 'git_repo'}
-												<label class="block space-y-1.5">
-													<span class="text-sm font-medium">Branch</span>
-													<input
-														bind:value={itemDrafts[item.id].branch}
-														class="w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
-														placeholder="main"
-													/>
-												</label>
-											{/if}
-
-											{#if itemDrafts[item.id].kind === 'npm_package'}
-												<label class="block space-y-1.5">
-													<span class="text-sm font-medium">Package name</span>
-													<input
-														bind:value={itemDrafts[item.id].packageName}
-														class="w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
-													/>
-												</label>
-											{/if}
+											<label class="block space-y-1.5">
+												<span class="text-sm font-medium">Description</span>
+												<textarea
+													bind:value={itemDrafts[item.id].description}
+													class="bc-scrollbar min-h-20 w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
+												></textarea>
+											</label>
 										</div>
 
 										<div class="mt-4 flex flex-wrap gap-3">
@@ -542,35 +419,27 @@
 										</div>
 									{:else}
 										<div class="flex items-start justify-between gap-4">
-											<div class="min-w-0 space-y-1">
-												<div class="flex flex-wrap items-center gap-2">
+											<div class="min-w-0 space-y-2">
+												<div class="flex items-center gap-3">
+													{#if item.iconUrl}
+														<img
+															src={item.iconUrl}
+															alt=""
+															class="h-5 w-5 rounded-sm border border-[hsl(var(--bc-border))] bg-white object-contain"
+														/>
+													{/if}
 													<h3 class="font-semibold">{item.name}</h3>
-													<span
-														class="bg-[hsl(var(--bc-bg))] px-2 py-0.5 text-xs font-medium text-[hsl(var(--bc-fg-muted))]"
-													>
-														{resourceItemKindLabels[item.kind]}
-													</span>
 												</div>
-												<p class="bc-muted text-sm leading-6">{item.description}</p>
-												{#if item.url}
-													<div
-														class="flex flex-wrap items-center gap-3 text-xs text-[hsl(var(--bc-fg-muted))]"
-													>
-														<button
-															type="button"
-															class="text-left transition hover:text-[hsl(var(--bc-fg))]"
-															onclick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}
-														>
-															{item.url}
-														</button>
-														{#if item.branch}
-															<span class="font-medium">branch: {item.branch}</span>
-														{/if}
-														{#if item.packageName}
-															<span class="font-medium">{item.packageName}</span>
-														{/if}
-													</div>
+												{#if item.description}
+													<p class="bc-muted text-sm leading-6">{item.description}</p>
 												{/if}
+												<button
+													type="button"
+													class="text-left text-xs text-[hsl(var(--bc-fg-muted))] transition hover:text-[hsl(var(--bc-fg))]"
+													onclick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}
+												>
+													{item.url}
+												</button>
 											</div>
 
 											<div class="flex shrink-0 items-center gap-1">

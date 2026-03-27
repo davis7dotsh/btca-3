@@ -38,16 +38,10 @@ const LIST_RESOURCES_TOOL_INPUT = z.object({
 
 const RESOURCE_ITEM_SCHEMA = z.object({
   id: z.string(),
-  kind: z.enum(["git_repo", "npm_package", "website"]),
   name: z.string(),
-  description: z.string(),
+  description: z.string().nullable(),
   url: z.string(),
-  branch: z.string().nullable(),
-  packageName: z.string().nullable(),
-  repoHost: z.string().nullable(),
-  repoOwner: z.string().nullable(),
-  repoName: z.string().nullable(),
-  websiteHost: z.string().nullable(),
+  iconUrl: z.string().nullable(),
   sortOrder: z.number(),
   createdAt: z.number(),
   updatedAt: z.number(),
@@ -56,8 +50,6 @@ const RESOURCE_ITEM_SCHEMA = z.object({
 const RESOURCE_SUMMARY_SCHEMA = z.object({
   id: z.string(),
   name: z.string(),
-  slug: z.string(),
-  notes: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
   itemCount: z.number(),
@@ -146,8 +138,6 @@ const collectAssistantAnswer = async (events: AsyncIterable<AgentEvent>) => {
 const formatResourcesText = (
   resources: ReadonlyArray<{
     name: string;
-    slug: string;
-    notes: string | null;
     itemCount: number;
   }>,
 ) => {
@@ -158,9 +148,7 @@ const formatResourcesText = (
   return resources
     .map(
       (resource) =>
-        `@${resource.slug} - ${resource.name} (${resource.itemCount} item${resource.itemCount === 1 ? "" : "s"})${
-          resource.notes ? `\n${resource.notes}` : ""
-        }`,
+        `@${resource.name} (${resource.itemCount} item${resource.itemCount === 1 ? "" : "s"})`,
     )
     .join("\n\n");
 };

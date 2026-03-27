@@ -2,11 +2,11 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
-  buildResourceItemFields,
-  normalizeResourceDescription,
   normalizeResourceName,
-  normalizeResourceSlug,
-  resourceItemKindValidator,
+  normalizeResourceItemDescription,
+  normalizeResourceItemName,
+  normalizeResourceItemUrl,
+  discoverFaviconUrl,
 } from "../resourceHelpers";
 import { authedMutation, authedQuery } from "./helpers";
 
@@ -57,77 +57,71 @@ const getOwnedResourceItem = async (
 const ensureUniqueSlug = async ({
   ctx,
   userId,
-  slug,
+  name,
   resourceId,
 }: {
   ctx: AuthedQueryCtx | AuthedMutationCtx;
   userId: string;
-  slug: string;
+  name: string;
   resourceId?: Id<"resources">;
 }) => {
   const existing = await ctx.db
     .query("resources")
-    .withIndex("by_user_id_and_slug", (query) => query.eq("userId", userId).eq("slug", slug))
+    .withIndex("by_user_id_and_name", (query) => query.eq("userId", userId).eq("name", name))
     .unique();
 
   if (existing !== null && existing._id !== resourceId) {
-    throw new Error(`A resource with the slug "@${slug}" already exists.`);
+    throw new Error(`A resource named "@${name}" already exists.`);
   }
-};
-
-const createUniqueSlug = async (
-  ctx: AuthedQueryCtx | AuthedMutationCtx,
-  userId: string,
-  name: string,
-) => {
-  const baseSlug = normalizeResourceSlug(name);
-  let slug = baseSlug;
-
-  for (let suffix = 1; suffix < 1000; suffix += 1) {
-    const existing = await ctx.db
-      .query("resources")
-      .withIndex("by_user_id_and_slug", (query) => query.eq("userId", userId).eq("slug", slug))
-      .unique();
-
-    if (existing === null) {
-      return slug;
-    }
-
-    slug = `${baseSlug}-${suffix + 1}`;
-  }
-
-  throw new Error("Failed to generate a unique resource slug.");
 };
 
 const itemArgs = {
-  kind: resourceItemKindValidator,
   name: v.string(),
-  description: v.string(),
-  url: v.optional(v.string()),
-  branch: v.optional(v.string()),
-  packageName: v.optional(v.string()),
+  description: v.optional(v.string()),
+  url: v.string(),
+};
+
+const buildResourceItemFields = async ({
+  userId,
+  name,
+  description,
+  url,
+}: {
+  userId: string;
+  name: string;
+  description?: string;
+  url: string;
+}) => {
+  const normalizedName = normalizeResourceItemName(name);
+  const normalizedDescription = description
+    ? normalizeResourceItemDescription(description)
+    : undefined;
+  const normalizedUrl = normalizeResourceItemUrl(url);
+  const iconUrl = await discoverFaviconUrl(normalizedUrl);
+
+  return {
+    userId,
+    name: normalizedName,
+    description: normalizedDescription,
+    url: normalizedUrl,
+    iconUrl,
+  };
 };
 
 const createResourceRecord = async ({
   ctx,
   userId,
   name,
-  slug,
-  notes,
 }: {
   ctx: AuthedMutationCtx;
   userId: string;
   name: string;
-  slug: string;
-  notes?: string;
 }) => {
   const now = Date.now();
   const createdBy = createCurator(userId);
   const resourceId = await ctx.db.insert("resources", {
     userId,
     name,
-    slug,
-    notes,
     createdAt: now,
     updatedAt: now,
     createdBy,
@@ -160,8 +154,6 @@ export const list = authedQuery({
         return {
           id: resource._id,
           name: resource.name,
-          slug: resource.slug,
-          notes: resource.notes ?? null,
           createdAt: resource.createdAt,
           updatedAt: resource.updatedAt,
           itemCount: items.length,
@@ -191,23 +183,15 @@ export const get = authedQuery({
       resource: {
         id: resource._id,
         name: resource.name,
-        slug: resource.slug,
-        notes: resource.notes ?? null,
         createdAt: resource.createdAt,
         updatedAt: resource.updatedAt,
       },
       items: items.map((item) => ({
         id: item._id,
-        kind: item.kind,
         name: item.name,
-        description: item.description,
+        description: item.description ?? null,
         url: item.url,
-        branch: item.branch ?? null,
-        packageName: item.packageName ?? null,
-        repoHost: item.repoHost ?? null,
-        repoOwner: item.repoOwner ?? null,
-        repoName: item.repoName ?? null,
-        websiteHost: item.websiteHost ?? null,
+        iconUrl: item.iconUrl ?? null,
         sortOrder: item.sortOrder,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
@@ -219,30 +203,16 @@ export const get = authedQuery({
 export const create = authedMutation({
   args: {
     name: v.string(),
-    slug: v.optional(v.string()),
-    notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = getUserId(ctx.identity);
     const name = normalizeResourceName(args.name);
-    const requestedSlug = args.slug?.trim() ? normalizeResourceSlug(args.slug) : undefined;
-    const slug = requestedSlug ?? (await createUniqueSlug(ctx, userId, name));
-    const notes = args.notes?.trim() ? normalizeResourceDescription(args.notes) : undefined;
-
-    if (!name) {
-      throw new Error("Expected a resource name.");
-    }
-
-    if (requestedSlug) {
-      await ensureUniqueSlug({ ctx, userId, slug: requestedSlug });
-    }
+    await ensureUniqueSlug({ ctx, userId, name });
 
     const { resourceId } = await createResourceRecord({
       ctx,
       userId,
       name,
-      slug,
-      notes,
     });
 
     return {
@@ -254,36 +224,23 @@ export const create = authedMutation({
 export const createWithItems = authedMutation({
   args: {
     name: v.string(),
-    slug: v.optional(v.string()),
-    notes: v.optional(v.string()),
     items: v.array(v.object(itemArgs)),
   },
   handler: async (ctx, args) => {
     const userId = getUserId(ctx.identity);
     const name = normalizeResourceName(args.name);
-    const requestedSlug = args.slug?.trim() ? normalizeResourceSlug(args.slug) : undefined;
-    const slug = requestedSlug ?? (await createUniqueSlug(ctx, userId, name));
-    const notes = args.notes?.trim() ? normalizeResourceDescription(args.notes) : undefined;
-
-    if (!name) {
-      throw new Error("Expected a resource name.");
-    }
-
+    await ensureUniqueSlug({ ctx, userId, name });
     if (args.items.length === 0) {
       throw new Error("Expected at least one resource item.");
     }
 
-    if (requestedSlug) {
-      await ensureUniqueSlug({ ctx, userId, slug: requestedSlug });
-    }
-
-    const normalizedItems = args.items.map((item) => buildResourceItemFields(item));
+    const normalizedItems = await Promise.all(
+      args.items.map((item) => buildResourceItemFields({ userId, ...item })),
+    );
     const { resourceId, now, createdBy } = await createResourceRecord({
       ctx,
       userId,
       name,
-      slug,
-      notes,
     });
 
     for (const [index, item] of normalizedItems.entries()) {
@@ -308,26 +265,15 @@ export const update = authedMutation({
   args: {
     resourceId: v.id("resources"),
     name: v.string(),
-    slug: v.string(),
-    notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = getUserId(ctx.identity);
     const resource = await getOwnedResource(ctx, args.resourceId, userId);
     const name = normalizeResourceName(args.name);
-    const slug = normalizeResourceSlug(args.slug);
-    const notes = args.notes?.trim() ? normalizeResourceDescription(args.notes) : undefined;
-
-    if (!name) {
-      throw new Error("Expected a resource name.");
-    }
-
-    await ensureUniqueSlug({ ctx, userId, slug, resourceId: resource._id });
+    await ensureUniqueSlug({ ctx, userId, name, resourceId: resource._id });
 
     await ctx.db.patch(resource._id, {
       name,
-      slug,
-      notes,
       updatedAt: Date.now(),
       updatedBy: createCurator(userId),
     });
@@ -370,7 +316,7 @@ export const createItem = authedMutation({
       .query("resourceItems")
       .withIndex("by_resource_sort_order", (query) => query.eq("resourceId", resource._id))
       .collect();
-    const itemFields = buildResourceItemFields(args);
+    const itemFields = await buildResourceItemFields({ userId, ...args });
     const now = Date.now();
     const createdBy = createCurator(userId);
     const itemId = await ctx.db.insert("resourceItems", {
@@ -402,7 +348,7 @@ export const updateItem = authedMutation({
   handler: async (ctx, args) => {
     const userId = getUserId(ctx.identity);
     const { item, resource } = await getOwnedResourceItem(ctx, args.itemId, userId);
-    const itemFields = buildResourceItemFields(args);
+    const itemFields = await buildResourceItemFields({ userId, ...args });
     const updatedAt = Date.now();
     const updatedBy = createCurator(userId);
 

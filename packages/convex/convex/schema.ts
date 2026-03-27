@@ -1,6 +1,5 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { resourceItemKindValidator } from "./resourceHelpers";
 
 const resourceCuratorValidator = v.object({
   kind: v.union(v.literal("user"), v.literal("agent")),
@@ -69,38 +68,26 @@ export default defineSchema({
   resources: defineTable({
     userId: v.string(),
     name: v.string(),
-    // Used for future @mentions like @svelte.
-    slug: v.string(),
-    notes: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
     createdBy: resourceCuratorValidator,
     updatedBy: resourceCuratorValidator,
   })
     .index("by_user_id", ["userId"])
-    .index("by_user_id_and_slug", ["userId", "slug"])
     .index("by_user_id_and_name", ["userId", "name"]),
   resourceItems: defineTable({
     resourceId: v.id("resources"),
-    kind: resourceItemKindValidator,
-    // A normalized identifier we can use later for dedupe checks per resource.
-    canonicalKey: v.string(),
+    userId: v.string(),
     name: v.string(),
-    description: v.string(),
+    description: v.optional(v.string()),
     url: v.string(),
+    iconUrl: v.optional(v.string()),
     sortOrder: v.number(),
-    repoHost: v.optional(v.string()),
-    repoOwner: v.optional(v.string()),
-    repoName: v.optional(v.string()),
-    branch: v.optional(v.string()),
-    packageName: v.optional(v.string()),
-    websiteHost: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
     createdBy: resourceCuratorValidator,
     updatedBy: resourceCuratorValidator,
   })
     .index("by_resource_sort_order", ["resourceId", "sortOrder"])
-    .index("by_resource_canonical_key", ["resourceId", "canonicalKey"])
-    .index("by_kind", ["kind"]),
+    .index("by_user_id", ["userId"]),
 });

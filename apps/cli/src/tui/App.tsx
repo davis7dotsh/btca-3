@@ -1,4 +1,4 @@
-import { Box, render, Text, useApp, useInput, useStdout } from "ink";
+import { Box, render, Static, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -19,15 +19,30 @@ type Resource = {
   readonly type: "git" | "local" | "npm";
 };
 
-type AssistantChunk =
-  | {
-      readonly type: "tool";
-      readonly toolName: string;
-    }
-  | {
-      readonly type: "text";
-      readonly text: string;
-    };
+type ToolCall = {
+  readonly id: string;
+  readonly name: string;
+  readonly status: "running" | "done" | "error";
+  readonly summary: string | null;
+};
+
+type RunMetrics = {
+  readonly priceUsd: number;
+  readonly totalToolCalls: number;
+  readonly outputTokens: number;
+  readonly generationDurationMs: number | null;
+  readonly outputTokensPerSecond: number | null;
+};
+
+type AssistantMessage = {
+  readonly role: "assistant";
+  readonly content: string;
+  readonly reasoning: string;
+  readonly reasoningStatus: "idle" | "running" | "done";
+  readonly toolCalls: readonly ToolCall[];
+  readonly canceled?: boolean;
+  readonly runMetrics?: RunMetrics | null;
+};
 
 type Message =
   | {
@@ -38,11 +53,7 @@ type Message =
       readonly role: "user";
       readonly content: string;
     }
-  | {
-      readonly role: "assistant";
-      readonly chunks: readonly AssistantChunk[];
-      readonly canceled?: boolean;
-    };
+  | AssistantMessage;
 
 type ThreadSummary = {
   readonly threadId: string;
@@ -104,14 +115,13 @@ if (!tuiContext) {
 }
 
 const colors = {
-  accent: "#4783eb",
-  border: "#404040",
-  dim: "#a3a3a3",
-  error: "#ef4444",
-  muted: "#737373",
-  success: "#22c55e",
-  text: "#fafafa",
-  warning: "#facc15",
+  accent: "#7AA2F7",
+  dim: "#737AA2",
+  error: "#F7768E",
+  muted: "#565F89",
+  success: "#73DACA",
+  text: "#A9B1D6",
+  warning: "#E0AF68",
 } as const;
 
 const defaultMessages: readonly Message[] = [
@@ -129,6 +139,15 @@ const commands: readonly CommandItem[] = [
 
 const mentionRegex = /(^|[^\w@])@(\S+)/g;
 const trailingMentionPunctuationRegex = /[!?.,;:)\]}]+$/u;
+
+const createAssistantMessage = (): AssistantMessage => ({
+  role: "assistant",
+  content: "",
+  reasoning: "",
+  reasoningStatus: "idle",
+  toolCalls: [],
+  runMetrics: null,
+});
 
 const splitMentionToken = (token: string) => {
   const normalized = token.replace(trailingMentionPunctuationRegex, "");
@@ -204,6 +223,157 @@ const parseSseEvent = (rawEvent: string) => {
   };
 };
 
+const parseJsonValue = (value: unknown) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const extractTextContent = (content: unknown): string => {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .flatMap((part) =>
+      typeof part === "object" && part !== null && "text" in part && typeof part.text === "string"
+        ? [part.text]
+        : [],
+    )
+    .join("\n\n");
+};
+
+const extractReasoningContent = (content: unknown) => {
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .flatMap((part) => {
+      if (
+        isRecord(part) &&
+        part.type === "thinking" &&
+        typeof part.thinking === "string" &&
+        part.thinking.trim().length > 0
+      ) {
+        return [part.thinking];
+      }
+
+      return [];
+    })
+    .join("\n\n");
+};
+
+const extractRunMetrics = (value: unknown): RunMetrics | null => {
+  if (!isRecord(value) || !("runMetrics" in value) || !isRecord(value.runMetrics)) {
+    return null;
+  }
+
+  const runMetrics = value.runMetrics;
+
+  if (
+    typeof runMetrics.priceUsd !== "number" ||
+    typeof runMetrics.totalToolCalls !== "number" ||
+    typeof runMetrics.outputTokens !== "number" ||
+    !(
+      runMetrics.generationDurationMs === null ||
+      typeof runMetrics.generationDurationMs === "number"
+    ) ||
+    !(
+      runMetrics.outputTokensPerSecond === null ||
+      typeof runMetrics.outputTokensPerSecond === "number"
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    priceUsd: runMetrics.priceUsd,
+    totalToolCalls: runMetrics.totalToolCalls,
+    outputTokens: runMetrics.outputTokens,
+    generationDurationMs: runMetrics.generationDurationMs,
+    outputTokensPerSecond: runMetrics.outputTokensPerSecond,
+  };
+};
+
+const summarizeToolDetails = (value: unknown): string | null => {
+  const parsed = parseJsonValue(value);
+
+  if (!isRecord(parsed)) {
+    return null;
+  }
+
+  const candidates = [
+    parsed.path,
+    parsed.cmd,
+    parsed.command,
+    parsed.query,
+    parsed.q,
+    parsed.location,
+    parsed.url,
+    parsed.name,
+  ];
+
+  const firstString = candidates.find((candidate) => typeof candidate === "string");
+  if (typeof firstString !== "string" || firstString.trim().length === 0) {
+    return null;
+  }
+
+  const normalized = firstString.replace(/\s+/g, " ").trim();
+  return normalized.length > 72 ? `${normalized.slice(0, 69)}...` : normalized;
+};
+
+const formatDateTime = (timestamp: number) =>
+  new Date(timestamp).toLocaleString(undefined, {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+  });
+
+const formatRunMetrics = (metrics: RunMetrics | null) => {
+  if (!metrics) {
+    return "";
+  }
+
+  const parts = [
+    `$${metrics.priceUsd.toFixed(4)}`,
+    `${metrics.totalToolCalls} tool${metrics.totalToolCalls === 1 ? "" : "s"}`,
+    `${metrics.outputTokens} tok`,
+  ];
+
+  if (metrics.outputTokensPerSecond !== null) {
+    parts.push(`${metrics.outputTokensPerSecond.toFixed(1)} tok/s`);
+  }
+
+  if (metrics.generationDurationMs !== null) {
+    parts.push(`${(metrics.generationDurationMs / 1000).toFixed(1)}s`);
+  }
+
+  return parts.join(" · ");
+};
+
+const getMessageKey = (message: Message, index: number) => {
+  if (message.role === "assistant") {
+    return `assistant:${index}:${message.content.slice(0, 24)}:${message.toolCalls.length}`;
+  }
+
+  return `${message.role}:${index}:${message.content.slice(0, 24)}`;
+};
+
 const resolveConfiguredResourceName = (token: string, resources: readonly Resource[]) => {
   const normalized = token.toLowerCase();
   const exact = resources.find((resource) => resource.name.toLowerCase() === normalized);
@@ -259,38 +429,16 @@ const resolveResourceReference = (token: string, resources: readonly Resource[])
   return isHttpsReference(normalized) || isNpmReference(normalized) ? normalized : null;
 };
 
-const formatDateTime = (timestamp: number) =>
-  new Date(timestamp).toLocaleString(undefined, {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  });
-
-const extractContentText = (content: unknown): string => {
-  if (typeof content === "string") {
-    return content;
-  }
-
-  if (!Array.isArray(content)) {
-    return "";
-  }
-
-  return content
-    .flatMap((part) =>
-      typeof part === "object" && part !== null && "text" in part && typeof part.text === "string"
-        ? [part.text]
-        : [],
-    )
-    .join("\n\n");
-};
-
-const parseThreadMessages = (thread: ThreadDetail | null): readonly Message[] => {
+const parseThreadMessages = (thread: ThreadDetail | null) => {
   if (!thread) {
-    return defaultMessages;
+    return {
+      lastRunMetrics: null,
+      messages: defaultMessages,
+    } as const;
   }
 
   const nextMessages: Message[] = [];
+  let lastRunMetrics: RunMetrics | null = null;
 
   for (const storedMessage of thread.messages) {
     let parsed: unknown;
@@ -301,7 +449,7 @@ const parseThreadMessages = (thread: ThreadDetail | null): readonly Message[] =>
       continue;
     }
 
-    if (typeof parsed !== "object" || parsed === null || !("role" in parsed)) {
+    if (!isRecord(parsed) || !("role" in parsed)) {
       continue;
     }
 
@@ -310,7 +458,7 @@ const parseThreadMessages = (thread: ThreadDetail | null): readonly Message[] =>
         "content" in parsed
           ? typeof parsed.content === "string"
             ? parsed.content
-            : extractContentText(parsed.content)
+            : extractTextContent(parsed.content)
           : "";
 
       if (content) {
@@ -320,94 +468,147 @@ const parseThreadMessages = (thread: ThreadDetail | null): readonly Message[] =>
     }
 
     if (parsed.role === "assistant") {
-      const text = "content" in parsed ? extractContentText(parsed.content) : "";
-      if (text) {
-        nextMessages.push({
-          role: "assistant",
-          chunks: [{ type: "text", text }],
-        });
+      const content = "content" in parsed ? extractTextContent(parsed.content) : "";
+      const reasoning = "content" in parsed ? extractReasoningContent(parsed.content) : "";
+      const runMetrics = extractRunMetrics(parsed);
+
+      const assistantMessage: AssistantMessage = {
+        role: "assistant",
+        content,
+        reasoning,
+        reasoningStatus: reasoning ? "done" : "idle",
+        toolCalls: [],
+        runMetrics,
+      };
+
+      nextMessages.push(assistantMessage);
+
+      if (runMetrics) {
+        lastRunMetrics = runMetrics;
+      }
+      continue;
+    }
+
+    if (parsed.role === "toolResult") {
+      const toolName = typeof parsed.toolName === "string" ? parsed.toolName : "tool";
+      const toolCallId = typeof parsed.toolCallId === "string" ? parsed.toolCallId : toolName;
+      const summary = "content" in parsed ? extractTextContent(parsed.content) : "";
+      const isError = "isError" in parsed && parsed.isError === true;
+      const previous = nextMessages.at(-1);
+
+      if (previous?.role === "assistant") {
+        nextMessages[nextMessages.length - 1] = {
+          ...previous,
+          toolCalls: [
+            ...previous.toolCalls,
+            {
+              id: toolCallId,
+              name: toolName,
+              status: isError ? "error" : "done",
+              summary: summary || null,
+            },
+          ],
+        };
       }
     }
   }
 
-  return nextMessages.length > 0 ? nextMessages : defaultMessages;
-};
-
-const estimateLines = (value: string, width: number) => {
-  if (value.length === 0) {
-    return 1;
-  }
-
-  return value
-    .split("\n")
-    .map((line) => Math.max(1, Math.ceil(line.length / Math.max(width, 1))))
-    .reduce((sum, count) => sum + count, 0);
-};
-
-const getAssistantText = (message: Extract<Message, { role: "assistant" }>) =>
-  message.chunks
-    .filter((chunk): chunk is Extract<AssistantChunk, { type: "text" }> => chunk.type === "text")
-    .map((chunk) => chunk.text)
-    .join("");
-
-const summarizeAssistantTools = (message: Extract<Message, { role: "assistant" }>) => {
-  const counts = new Map<string, number>();
-
-  for (const chunk of message.chunks) {
-    if (chunk.type !== "tool") {
-      continue;
-    }
-
-    counts.set(chunk.toolName, (counts.get(chunk.toolName) ?? 0) + 1);
-  }
-
-  return [...counts.entries()].map(([name, count]) => `${name} x${count}`);
+  return {
+    lastRunMetrics,
+    messages: nextMessages.length > 0 ? nextMessages : defaultMessages,
+  } as const;
 };
 
 const Header = ({ model, provider }: { model: string; provider: string }) => (
-  <Box borderStyle="round" borderColor={colors.border} paddingX={1} justifyContent="space-between">
-    <Text>
-      <Text color={colors.accent}>{"◆"}</Text>
-      <Text color={colors.text}>{" btca"}</Text>
-      <Text color={colors.dim}>{" - local research tui"}</Text>
+  <Box>
+    <Text bold color={colors.accent}>
+      {"btca"}
     </Text>
-    <Text color={colors.muted}>{`${provider}/${model}`}</Text>
+    <Text color={colors.muted}>{`  ${provider}/${model}`}</Text>
   </Box>
 );
 
-const MessageRow = ({ message }: { message: Message }) => {
+const UserMessageRow = ({ content }: { content: string }) => (
+  <Box flexDirection="column" marginTop={1}>
+    <Text bold color={colors.accent}>
+      {"you"}
+    </Text>
+    <Text color={colors.text}>{content}</Text>
+  </Box>
+);
+
+const SystemMessageRow = ({ content }: { content: string }) => (
+  <Box flexDirection="column" marginTop={1}>
+    <Text color={colors.dim}>{content}</Text>
+  </Box>
+);
+
+const AssistantMessageRow = ({
+  isActive,
+  message,
+}: {
+  isActive: boolean;
+  message: AssistantMessage;
+}) => {
+  const errorTools = message.toolCalls.filter((tc) => tc.status === "error");
+
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text bold color={colors.accent}>
+        {"btca"}
+      </Text>
+      {message.reasoningStatus === "running" ? (
+        <Text color={colors.dim}>{"  thinking..."}</Text>
+      ) : null}
+      {isActive ? (
+        message.toolCalls.map((toolCall) => (
+          <Text
+            key={toolCall.id}
+            color={
+              toolCall.status === "error"
+                ? colors.error
+                : toolCall.status === "running"
+                  ? colors.warning
+                  : colors.dim
+            }
+          >
+            {`  ${toolCall.status === "running" ? "◌" : toolCall.status === "error" ? "✕" : "●"} ${toolCall.name}${toolCall.summary ? `  ${toolCall.summary}` : ""}`}
+          </Text>
+        ))
+      ) : message.toolCalls.length > 0 ? (
+        <>
+          <Text color={colors.dim}>
+            {`  ${message.toolCalls.length} tool${message.toolCalls.length === 1 ? "" : "s"} ran`}
+          </Text>
+          {errorTools.map((toolCall) => (
+            <Text key={toolCall.id} color={colors.error}>
+              {`  ✕ ${toolCall.name}${toolCall.summary ? `  ${toolCall.summary}` : ""}`}
+            </Text>
+          ))}
+        </>
+      ) : null}
+      {message.content ? <Text color={colors.text}>{message.content}</Text> : null}
+      {isActive &&
+      !message.content &&
+      message.toolCalls.length === 0 &&
+      message.reasoning.length === 0 ? (
+        <Text color={colors.dim}>{"..."}</Text>
+      ) : null}
+      {message.canceled ? <Text color={colors.warning}>{"canceled"}</Text> : null}
+    </Box>
+  );
+};
+
+const TranscriptRow = ({ isActive = false, message }: { isActive?: boolean; message: Message }) => {
   if (message.role === "system") {
-    return (
-      <Box borderStyle="round" borderColor={colors.border} paddingX={1}>
-        <Text color={colors.dim}>{message.content}</Text>
-      </Box>
-    );
+    return <SystemMessageRow content={message.content} />;
   }
 
   if (message.role === "user") {
-    return (
-      <Box borderStyle="round" borderColor={colors.border} paddingX={1}>
-        <Text color={colors.text}>
-          <Text color={colors.accent}>{"You: "}</Text>
-          {message.content}
-        </Text>
-      </Box>
-    );
+    return <UserMessageRow content={message.content} />;
   }
 
-  const tools = summarizeAssistantTools(message);
-  const text = getAssistantText(message);
-
-  return (
-    <Box flexDirection="column" borderStyle="round" borderColor={colors.accent} paddingX={1}>
-      <Text color={colors.text}>
-        <Text color={colors.accent}>{"btca: "}</Text>
-        {text || (tools.length > 0 ? "Working..." : "")}
-      </Text>
-      {tools.length > 0 ? <Text color={colors.dim}>{`Tools: ${tools.join(" | ")}`}</Text> : null}
-      {message.canceled ? <Text color={colors.warning}>{"Canceled"}</Text> : null}
-    </Box>
-  );
+  return <AssistantMessageRow isActive={isActive} message={message} />;
 };
 
 const ResumeList = ({
@@ -417,15 +618,17 @@ const ResumeList = ({
   selectedIndex: number;
   threads: readonly ThreadSummary[];
 }) => (
-  <Box flexDirection="column" borderStyle="round" borderColor={colors.accent} paddingX={1}>
-    <Text color={colors.text}>{"Resume thread"}</Text>
-    <Text color={colors.dim}>{"Up/Down select, Enter resume, Esc close"}</Text>
+  <Box flexDirection="column" marginTop={1}>
+    <Text bold color={colors.accent}>
+      {"resume thread"}
+    </Text>
+    <Text color={colors.dim}>{"↑↓ select · enter resume · esc close"}</Text>
     {threads.length === 0 ? (
-      <Text color={colors.dim}>{"No saved threads yet."}</Text>
+      <Text color={colors.dim}>{"no saved threads"}</Text>
     ) : (
       threads.map((thread, index) => (
         <Text key={thread.threadId} color={index === selectedIndex ? colors.accent : colors.text}>
-          {`${index === selectedIndex ? ">" : " "} ${thread.activity ?? "Untitled"}  ${formatDateTime(
+          {`${index === selectedIndex ? "›" : " "} ${thread.activity ?? "untitled"}  ${formatDateTime(
             thread.updatedAt,
           )}  ${thread.resourceNames.join(", ") || "no resources"}`}
         </Text>
@@ -448,11 +651,11 @@ const Suggestions = ({
   }
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={colors.accent} paddingX={1}>
+    <Box flexDirection="column">
       <Text color={colors.dim}>{label}</Text>
       {items.map((item, index) => (
         <Text key={item} color={index === selectedIndex ? colors.accent : colors.text}>
-          {`${index === selectedIndex ? ">" : " "} ${item}`}
+          {`${index === selectedIndex ? "›" : " "} ${item}`}
         </Text>
       ))}
     </Box>
@@ -461,7 +664,6 @@ const Suggestions = ({
 
 const App = () => {
   const { exit } = useApp();
-  const { stdout } = useStdout();
 
   const [provider, setProvider] = useState(tuiContext.provider);
   const [model, setModel] = useState(tuiContext.model);
@@ -477,7 +679,12 @@ const App = () => {
   const [selectedThreadIndex, setSelectedThreadIndex] = useState(0);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
+  const [inputRenderKey, setInputRenderKey] = useState(0);
+  const [currentAssistant, setCurrentAssistant] = useState<AssistantMessage | null>(null);
+  const [lastRunMetrics, setLastRunMetrics] = useState<RunMetrics | null>(null);
+  const [transcriptKey, setTranscriptKey] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const currentAssistantRef = useRef<AssistantMessage | null>(null);
 
   const commandMatches = useMemo(() => {
     const trimmed = input.trimStart();
@@ -504,98 +711,69 @@ const App = () => {
       .map((resource) => resource.name);
   }, [currentMentionToken, resources]);
 
-  const visibleMessages = useMemo(() => {
-    const width = stdout.columns || 80;
-    const availableLines = Math.max(8, (stdout.rows || 24) - (resumeOpen ? 14 : 10));
-    const selected: Message[] = [];
-    let usedLines = 0;
-
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index]!;
-      const text = message.role === "assistant" ? getAssistantText(message) : message.content;
-      const lineCost =
-        estimateLines(text, width - 4) +
-        (message.role === "assistant" ? summarizeAssistantTools(message).length : 0) +
-        2;
-
-      if (selected.length > 0 && usedLines + lineCost > availableLines) {
-        break;
-      }
-
-      selected.unshift(message);
-      usedLines += lineCost;
+  const activeSuggestions = useMemo(() => {
+    if (resumeOpen) {
+      return { items: [], label: "", selectedIndex: 0 } as const;
     }
 
-    return selected;
-  }, [messages, resumeOpen, stdout.columns, stdout.rows]);
+    if (commandMatches.length > 0) {
+      return {
+        items: commandMatches.map((command) => `${command.name}  ${command.description}`),
+        label: "Commands",
+        selectedIndex: selectedCommandIndex,
+      } as const;
+    }
+
+    if (mentionMatches.length > 0) {
+      return {
+        items: mentionMatches.map((name) => `@${name}`),
+        label: "Resources",
+        selectedIndex: selectedMentionIndex,
+      } as const;
+    }
+
+    return { items: [], label: "", selectedIndex: 0 } as const;
+  }, [commandMatches, mentionMatches, resumeOpen, selectedCommandIndex, selectedMentionIndex]);
+
+  const transcriptItems = useMemo(
+    () => messages.map((message, index) => ({ id: getMessageKey(message, index), message })),
+    [messages],
+  );
+
+  const resetTranscript = (nextMessages: readonly Message[], nextMetrics: RunMetrics | null) => {
+    currentAssistantRef.current = null;
+    setCurrentAssistant(null);
+    setMessages(nextMessages);
+    setLastRunMetrics(nextMetrics);
+    setTranscriptKey((current) => current + 1);
+  };
 
   const addSystemMessage = (content: string) =>
     setMessages((current) => [...current, { role: "system", content }]);
 
-  const appendAssistantText = (delta: string) => {
-    setMessages((current) => {
-      const next = [...current];
-      const last = next.at(-1);
-
-      if (last?.role === "assistant") {
-        const chunks = [...last.chunks];
-        const lastChunk = chunks.at(-1);
-        if (lastChunk?.type === "text") {
-          chunks[chunks.length - 1] = {
-            ...lastChunk,
-            text: lastChunk.text + delta,
-          };
-        } else {
-          chunks.push({ type: "text", text: delta });
-        }
-
-        next[next.length - 1] = { ...last, chunks };
-        return next;
-      }
-
-      next.push({
-        role: "assistant",
-        chunks: [{ type: "text", text: delta }],
-      });
-      return next;
-    });
+  const applyMentionCompletion = (nextMention: string) => {
+    setInput((current) => current.replace(/(^|(?<=\s))@[^\s]*$/, `@${nextMention} `));
+    setInputRenderKey((current) => current + 1);
   };
 
-  const appendAssistantTool = (toolName: string) => {
-    setMessages((current) => {
-      const next = [...current];
-      const last = next.at(-1);
-
-      if (last?.role === "assistant") {
-        next[next.length - 1] = {
-          ...last,
-          chunks: [...last.chunks, { type: "tool", toolName }],
-        };
-        return next;
-      }
-
-      next.push({
-        role: "assistant",
-        chunks: [{ type: "tool", toolName }],
-      });
-      return next;
-    });
+  const updateCurrentAssistant = (updater: (current: AssistantMessage) => AssistantMessage) => {
+    const next = updater(currentAssistantRef.current ?? createAssistantMessage());
+    currentAssistantRef.current = next;
+    setCurrentAssistant(next);
   };
 
-  const markLastAssistantCanceled = () => {
-    setMessages((current) => {
-      const next = [...current];
-      const last = next.at(-1);
-      if (last?.role !== "assistant") {
-        return current;
-      }
+  const commitCurrentAssistant = () => {
+    const assistant = currentAssistantRef.current;
+    if (!assistant) {
+      return;
+    }
 
-      next[next.length - 1] = {
-        ...last,
-        canceled: true,
-      };
-      return next;
-    });
+    setMessages((current) => [...current, assistant]);
+    if (assistant.runMetrics) {
+      setLastRunMetrics(assistant.runMetrics);
+    }
+    currentAssistantRef.current = null;
+    setCurrentAssistant(null);
   };
 
   const refreshThreads = async () => {
@@ -608,9 +786,9 @@ const App = () => {
     setInput("");
 
     if (command.action === "clear") {
-      setMessages(defaultMessages);
       setThreadId(null);
       setThreadResources([]);
+      resetTranscript(defaultMessages, null);
       return;
     }
 
@@ -631,11 +809,12 @@ const App = () => {
       throw new Error("That thread no longer exists.");
     }
 
+    const parsedThread = parseThreadMessages(response.thread);
     setThreadId(response.thread.threadId);
     setThreadResources(response.thread.resourceNames);
     setProvider(response.thread.provider ?? provider);
     setModel(response.thread.modelId ?? model);
-    setMessages(parseThreadMessages(response.thread));
+    resetTranscript(parsedThread.messages, parsedThread.lastRunMetrics);
     setResumeOpen(false);
     setInput("");
   };
@@ -682,7 +861,10 @@ const App = () => {
 
     setInput("");
     setThreadResources(resourceNames);
-    setMessages((current) => [...current, { role: "user", content: question }]);
+    setMessages((current) => [...current, { role: "user", content: trimmedInput }]);
+    setLastRunMetrics(null);
+    currentAssistantRef.current = createAssistantMessage();
+    setCurrentAssistant(currentAssistantRef.current);
     setIsStreaming(true);
     setCancelPending(false);
 
@@ -743,6 +925,11 @@ const App = () => {
             continue;
           }
 
+          if (parsed.eventName === "done") {
+            commitCurrentAssistant();
+            continue;
+          }
+
           if (parsed.eventName === "error" && parsed.data && typeof parsed.data === "object") {
             const record = parsed.data as Record<string, unknown>;
             throw new Error(
@@ -773,52 +960,205 @@ const App = () => {
                 "delta" in assistantMessageEvent &&
                 typeof assistantMessageEvent.delta === "string"
               ) {
-                appendAssistantText(assistantMessageEvent.delta);
+                updateCurrentAssistant((current) => ({
+                  ...current,
+                  content: current.content + assistantMessageEvent.delta,
+                }));
               }
 
               if (
-                assistantMessageEvent.type === "toolcall_end" &&
-                "toolCall" in assistantMessageEvent &&
-                typeof assistantMessageEvent.toolCall === "object" &&
-                assistantMessageEvent.toolCall !== null &&
-                "name" in assistantMessageEvent.toolCall &&
-                typeof assistantMessageEvent.toolCall.name === "string"
+                assistantMessageEvent.type === "thinking_start" ||
+                assistantMessageEvent.type === "thinking_end"
               ) {
-                appendAssistantTool(assistantMessageEvent.toolCall.name);
+                updateCurrentAssistant((current) => ({
+                  ...current,
+                  reasoningStatus:
+                    assistantMessageEvent.type === "thinking_start" ? "running" : "done",
+                }));
+              }
+
+              if (
+                assistantMessageEvent.type === "thinking_delta" &&
+                "delta" in assistantMessageEvent &&
+                typeof assistantMessageEvent.delta === "string"
+              ) {
+                updateCurrentAssistant((current) => ({
+                  ...current,
+                  reasoning: current.reasoning + assistantMessageEvent.delta,
+                  reasoningStatus: "running",
+                }));
+              }
+
+              const toolCall =
+                "toolCall" in assistantMessageEvent &&
+                isRecord(assistantMessageEvent.toolCall) &&
+                typeof assistantMessageEvent.toolCall.name === "string"
+                  ? {
+                      args:
+                        "arguments" in assistantMessageEvent.toolCall
+                          ? assistantMessageEvent.toolCall.arguments
+                          : null,
+                      name: assistantMessageEvent.toolCall.name,
+                    }
+                  : null;
+
+              if (assistantMessageEvent.type === "toolcall_end" && toolCall) {
+                updateCurrentAssistant((current) => {
+                  const existingIndex = current.toolCalls.findIndex(
+                    (currentToolCall) =>
+                      currentToolCall.name === toolCall.name &&
+                      currentToolCall.status === "running",
+                  );
+
+                  if (existingIndex === -1) {
+                    return {
+                      ...current,
+                      toolCalls: [
+                        ...current.toolCalls,
+                        {
+                          id: `${toolCall.name}:${current.toolCalls.length}`,
+                          name: toolCall.name,
+                          status: "done",
+                          summary: summarizeToolDetails(toolCall.args),
+                        },
+                      ],
+                    };
+                  }
+
+                  return {
+                    ...current,
+                    toolCalls: current.toolCalls.map((toolCall, index) =>
+                      index === existingIndex ? { ...toolCall, status: "done" } : toolCall,
+                    ),
+                  };
+                });
               }
             }
+
+            continue;
           }
 
-          if (
+          const toolExecutionStart =
+            outerEvent.type === "tool_execution_start" &&
+            "toolCallId" in outerEvent &&
+            typeof outerEvent.toolCallId === "string" &&
+            "toolName" in outerEvent &&
+            typeof outerEvent.toolName === "string"
+              ? {
+                  args: "args" in outerEvent ? outerEvent.args : null,
+                  toolCallId: outerEvent.toolCallId,
+                  toolName: outerEvent.toolName,
+                }
+              : null;
+
+          if (toolExecutionStart) {
+            updateCurrentAssistant((current) => ({
+              ...current,
+              toolCalls: [
+                ...current.toolCalls,
+                {
+                  id: toolExecutionStart.toolCallId,
+                  name: toolExecutionStart.toolName,
+                  status: "running",
+                  summary: summarizeToolDetails(toolExecutionStart.args),
+                },
+              ],
+            }));
+            continue;
+          }
+
+          const toolExecutionEnd =
+            outerEvent.type === "tool_execution_end" &&
+            "toolCallId" in outerEvent &&
+            typeof outerEvent.toolCallId === "string"
+              ? outerEvent
+              : null;
+
+          if (toolExecutionEnd) {
+            updateCurrentAssistant((current) => ({
+              ...current,
+              toolCalls: current.toolCalls.map((toolCall) =>
+                toolCall.id === toolExecutionEnd.toolCallId
+                  ? {
+                      ...toolCall,
+                      status:
+                        "isError" in toolExecutionEnd && toolExecutionEnd.isError === true
+                          ? "error"
+                          : "done",
+                      summary:
+                        toolCall.summary ??
+                        summarizeToolDetails(
+                          "result" in toolExecutionEnd && isRecord(toolExecutionEnd.result)
+                            ? toolExecutionEnd.result.details
+                            : null,
+                        ),
+                    }
+                  : toolCall,
+              ),
+            }));
+            continue;
+          }
+
+          const assistantEndMessage =
             outerEvent.type === "message_end" &&
             "message" in outerEvent &&
-            outerEvent.message &&
-            typeof outerEvent.message === "object" &&
-            "role" in outerEvent.message &&
-            outerEvent.message.role === "assistant" &&
-            "stopReason" in outerEvent.message &&
-            outerEvent.message.stopReason === "error"
-          ) {
-            throw new Error(
-              "errorMessage" in outerEvent.message &&
-                typeof outerEvent.message.errorMessage === "string"
-                ? outerEvent.message.errorMessage
-                : "The model request failed.",
-            );
+            isRecord(outerEvent.message) &&
+            outerEvent.message.role === "assistant"
+              ? outerEvent.message
+              : null;
+
+          if (assistantEndMessage) {
+            if ("stopReason" in assistantEndMessage && assistantEndMessage.stopReason === "error") {
+              throw new Error(
+                "errorMessage" in assistantEndMessage &&
+                  typeof assistantEndMessage.errorMessage === "string"
+                  ? assistantEndMessage.errorMessage
+                  : "The model request failed.",
+              );
+            }
+
+            const finalContent =
+              "content" in assistantEndMessage ? assistantEndMessage.content : null;
+            const finalReasoning = extractReasoningContent(finalContent);
+
+            updateCurrentAssistant((current) => ({
+              ...current,
+              content: extractTextContent(finalContent),
+              reasoning: finalReasoning || current.reasoning,
+              reasoningStatus: finalReasoning ? "done" : current.reasoningStatus,
+              runMetrics: extractRunMetrics(assistantEndMessage) ?? current.runMetrics ?? null,
+            }));
+            continue;
+          }
+
+          if (outerEvent.type === "agent_end") {
+            const runMetrics = extractRunMetrics(outerEvent);
+            if (runMetrics) {
+              updateCurrentAssistant((current) => ({
+                ...current,
+                runMetrics,
+              }));
+            }
           }
         }
       }
     } catch (error) {
       if (abortController.signal.aborted) {
-        markLastAssistantCanceled();
+        updateCurrentAssistant((current) => ({
+          ...current,
+          canceled: true,
+        }));
+        commitCurrentAssistant();
         addSystemMessage("Canceled the current response.");
       } else {
+        commitCurrentAssistant();
         addSystemMessage(error instanceof Error ? error.message : "The agent request failed.");
       }
     } finally {
       abortControllerRef.current = null;
       setCancelPending(false);
       setIsStreaming(false);
+      commitCurrentAssistant();
     }
   };
 
@@ -923,7 +1263,7 @@ const App = () => {
       if (key.tab) {
         const nextMention = mentionMatches[selectedMentionIndex] ?? mentionMatches[0];
         if (nextMention) {
-          setInput((current) => current.replace(/(^|(?<=\s))@[^\s]*$/, `@${nextMention} `));
+          applyMentionCompletion(nextMention);
         }
       }
     }
@@ -934,37 +1274,20 @@ const App = () => {
       <Header provider={provider} model={model} />
 
       <Box flexDirection="column" marginTop={1}>
-        {visibleMessages.map((message, index) => (
-          <MessageRow key={`${index}:${message.role}`} message={message} />
-        ))}
+        <Static key={transcriptKey} items={transcriptItems}>
+          {(item) => <TranscriptRow key={item.id} message={item.message} />}
+        </Static>
+        {currentAssistant ? (
+          <TranscriptRow isActive={isStreaming} message={currentAssistant} />
+        ) : null}
       </Box>
 
       {resumeOpen ? <ResumeList threads={threads} selectedIndex={selectedThreadIndex} /> : null}
 
-      {!resumeOpen && commandMatches.length > 0 ? (
-        <Suggestions
-          items={commandMatches.map((command) => `${command.name}  ${command.description}`)}
-          label="Commands"
-          selectedIndex={selectedCommandIndex}
-        />
-      ) : null}
-
-      {!resumeOpen && commandMatches.length === 0 && mentionMatches.length > 0 ? (
-        <Suggestions
-          items={mentionMatches.map((name) => `@${name}`)}
-          label="Resources"
-          selectedIndex={selectedMentionIndex}
-        />
-      ) : null}
-
-      <Box
-        marginTop={1}
-        borderStyle="round"
-        borderColor={resumeOpen ? colors.border : colors.accent}
-        paddingX={1}
-      >
-        <Text color={colors.accent}>{"> "}</Text>
+      <Box marginTop={1}>
+        <Text color={resumeOpen ? colors.dim : colors.accent}>{"❯ "}</Text>
         <TextInput
+          key={inputRenderKey}
           focus={!resumeOpen}
           placeholder="@resource question... or / for commands"
           showCursor={!resumeOpen}
@@ -974,7 +1297,7 @@ const App = () => {
             if (mentionMatches.length > 0) {
               const nextMention = mentionMatches[selectedMentionIndex] ?? mentionMatches[0];
               if (nextMention) {
-                setInput((current) => current.replace(/(^|(?<=\s))@[^\s]*$/, `@${nextMention} `));
+                applyMentionCompletion(nextMention);
               }
               return;
             }
@@ -1004,18 +1327,28 @@ const App = () => {
         />
       </Box>
 
+      {activeSuggestions.items.length > 0 ? (
+        <Suggestions
+          items={activeSuggestions.items}
+          label={activeSuggestions.label}
+          selectedIndex={activeSuggestions.selectedIndex}
+        />
+      ) : null}
+
       <Box justifyContent="space-between" marginTop={1}>
         <Text color={colors.muted}>
           {isStreaming
             ? cancelPending
-              ? "Press Esc again to cancel"
-              : "Streaming... Esc to cancel"
-            : "Enter send  |  @resource mention  |  / commands  |  Ctrl+Q quit"}
+              ? "esc again to cancel"
+              : "streaming..."
+            : lastRunMetrics
+              ? formatRunMetrics(lastRunMetrics)
+              : "@ mention · / commands · ^q quit"}
         </Text>
         <Text color={colors.muted}>
-          {`${threadResources.map((resource) => `@${resource}`).join(" ")}${
-            threadResources.length > 0 ? "  " : ""
-          }v${tuiContext.version}`}
+          {threadResources.length > 0
+            ? threadResources.map((resource) => `@${resource}`).join(" ")
+            : `v${tuiContext.version}`}
         </Text>
       </Box>
     </Box>

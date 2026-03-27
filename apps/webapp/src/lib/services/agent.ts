@@ -24,7 +24,7 @@ import {
   createEmptyTurnCostBreakdown,
 } from "$lib/billing/usage";
 import { defaultAgentModelId, getAgentModel } from "$lib/models";
-import { buildTaggedResourcesXml, extractTaggedResourceSlugs } from "$lib/resources";
+import { buildTaggedResourcesXml, extractTaggedResourceNames } from "$lib/resources";
 import type {
   AgentRunMetrics,
   AgentPromptResult,
@@ -756,7 +756,7 @@ const createPromptThread =
             return attachmentsBySequence;
           });
 
-        const taggedResourceSlugs = extractTaggedResourceSlugs(input.prompt);
+        const taggedResourceNames = extractTaggedResourceNames(input.prompt);
         const persistedThread: StoredAgentThreadContext | null = yield* convex.query({
           func: api.private.agentThreads.getThreadContext,
           args: {
@@ -802,13 +802,13 @@ const createPromptThread =
                 promptAttachments.map((attachment) => fetchAttachmentContent(attachment)),
               );
         const taggedResources: TaggedResourcePromptResource[] =
-          taggedResourceSlugs.length === 0
+          taggedResourceNames.length === 0
             ? []
             : yield* convex.query({
                 func: api.private.resources.getTaggedResources,
                 args: {
                   userId: input.userId,
-                  slugs: taggedResourceSlugs,
+                  names: taggedResourceNames,
                 },
               });
         const shouldGenerateThreadTitle =
