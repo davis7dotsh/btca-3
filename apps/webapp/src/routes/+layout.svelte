@@ -3,14 +3,24 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import ogImage from '$lib/assets/og.png';
 	import { Bot, GitBranch, Menu, Moon, Sun, X } from '@lucide/svelte';
-	import { page } from '$app/state';
+	import { goto, preloadCode, preloadData } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { navigating, page } from '$app/state';
 	import { theme } from '$lib/stores/theme.svelte';
 
 	let { children } = $props();
 	let mobileNavOpen = $state(false);
+	let appNavigationPending = $state(false);
+	let appPreloadPromise: Promise<unknown> | null = null;
+
+	const appEntryPath = resolve('/app');
 
 	const isAppRoute = $derived(page.url.pathname.startsWith('/app'));
 	const pathname = $derived(page.url.pathname);
+	const showAppNavigationLoader = $derived(
+		!isAppRoute &&
+			(appNavigationPending || navigating.to?.url.pathname.startsWith(appEntryPath) === true)
+	);
 
 	const isActive = (href: string) =>
 		pathname === href || (href !== '/' && pathname.startsWith(href));
@@ -24,7 +34,90 @@
 			mobileNavOpen = false;
 		}
 	});
+
+	$effect(() => {
+		if (!navigating.to) {
+			appNavigationPending = false;
+		}
+	});
+
+	const preloadAppEntry = () => {
+		if (!appPreloadPromise) {
+			appPreloadPromise = Promise.all([preloadCode(appEntryPath), preloadData(appEntryPath)]).catch(
+				() => {
+					appPreloadPromise = null;
+				}
+			);
+		}
+
+		return appPreloadPromise;
+	};
+
+	const getAppEntryLink = (target: EventTarget | null) => {
+		if (!(target instanceof Element)) {
+			return null;
+		}
+
+		const link = target.closest('a[href]');
+		if (!(link instanceof HTMLAnchorElement)) {
+			return null;
+		}
+
+		const url = new URL(link.href, page.url);
+
+		if (url.origin !== page.url.origin || url.pathname !== appEntryPath) {
+			return null;
+		}
+
+		return { link, url };
+	};
+
+	const shouldHandleAppNavigation = (event: MouseEvent) =>
+		!event.defaultPrevented &&
+		event.button === 0 &&
+		!event.metaKey &&
+		!event.ctrlKey &&
+		!event.shiftKey &&
+		!event.altKey;
+
+	const handleDocumentPointerOver = (event: PointerEvent) => {
+		if (getAppEntryLink(event.target)) {
+			void preloadAppEntry();
+		}
+	};
+
+	const handleDocumentFocusIn = (event: FocusEvent) => {
+		if (getAppEntryLink(event.target)) {
+			void preloadAppEntry();
+		}
+	};
+
+	const handleDocumentClick = (event: MouseEvent) => {
+		if (!shouldHandleAppNavigation(event)) {
+			return;
+		}
+
+		const appLink = getAppEntryLink(event.target);
+
+		if (!appLink) {
+			return;
+		}
+
+		event.preventDefault();
+		appNavigationPending = true;
+		void preloadAppEntry();
+		void goto(`${appLink.url.pathname}${appLink.url.search}${appLink.url.hash}`, {
+			keepFocus: true,
+			noScroll: true
+		});
+	};
 </script>
+
+<svelte:body
+	onclick={handleDocumentClick}
+	onfocusin={handleDocumentFocusIn}
+	onpointerover={handleDocumentPointerOver}
+/>
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
@@ -53,6 +146,35 @@
 	{@render children()}
 {:else}
 	<div class="relative min-h-dvh overflow-hidden">
+		{#if showAppNavigationLoader}
+			<div
+				class="fixed inset-0 z-50 flex items-center justify-center bg-[hsl(var(--bc-bg)/0.82)] backdrop-blur-sm"
+				role="status"
+				aria-live="polite"
+				aria-busy="true"
+			>
+				<div class="bc-card flex items-center gap-4 px-5 py-4 shadow-[0_20px_60px_hsl(var(--bc-shadow)/0.35)]">
+					<div class="bc-logoMark relative z-10">
+						<svg
+							class="bc-appEntryTrace pointer-events-none absolute inset-0"
+							viewBox="0 0 42 42"
+							aria-hidden="true"
+						>
+							<rect class="bc-appEntryTrace-base" x="1" y="1" width="40" height="40" />
+							<rect class="bc-appEntryTrace-active" x="1" y="1" width="40" height="40" pathLength="100" />
+						</svg>
+						<div class="relative z-10 flex size-full items-center justify-center">
+							<Bot size={18} strokeWidth={2.25} />
+						</div>
+					</div>
+					<div class="space-y-1">
+						<p class="bc-title text-sm text-[hsl(var(--bc-fg))]">Opening the web app</p>
+						<p class="text-sm text-[hsl(var(--bc-fg-muted))]">Preparing your workspace…</p>
+					</div>
+				</div>
+			</div>
+		{/if}
+
 		<div aria-hidden="true" class="bc-appBg pointer-events-none absolute inset-0 -z-10"></div>
 
 		<div class="bc-skip">
@@ -194,3 +316,46 @@
 		</footer>
 	</div>
 {/if}
+
+<style>
+	.bc-appEntryTrace {
+		width: 100%;
+		height: 100%;
+	}
+
+	.bc-appEntryTrace rect {
+		fill: none;
+		stroke-width: 2;
+		vector-effect: non-scaling-stroke;
+		shape-rendering: geometricPrecision;
+	}
+
+	.bc-appEntryTrace-base {
+		stroke: color-mix(in oklab, hsl(var(--bc-border)) 55%, transparent);
+	}
+
+	.bc-appEntryTrace-active {
+		stroke: hsl(var(--bc-accent));
+		stroke-dasharray: 8 92;
+		stroke-dashoffset: 2;
+		animation: bc-app-entry-trace 1.05s linear infinite;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.bc-appEntryTrace-active {
+			animation: none;
+			stroke-dasharray: 100 0;
+			opacity: 0.45;
+		}
+	}
+
+	@keyframes bc-app-entry-trace {
+		from {
+			stroke-dashoffset: 0;
+		}
+
+		to {
+			stroke-dashoffset: -100;
+		}
+	}
+</style>
