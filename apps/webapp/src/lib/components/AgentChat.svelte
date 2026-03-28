@@ -216,6 +216,12 @@
 		lastEventId: string | null;
 	}
 
+	interface EditPromptState {
+		messageId: string;
+		persistedSequence: number;
+		attachmentIds: AttachmentId[];
+	}
+
 	const authContext = getAuthContext();
 	const convex = browser ? useConvexClient() : null;
 	const attachmentUploader = createUploadThing('agentAttachment', {});
@@ -1042,6 +1048,11 @@
 	let modelPickerOpen = $state(false);
 	let mentionMenuIndex = $state(0);
 	let retryingMessageId = $state<string | null>(null);
+	let editingMessageId = $state<string | null>(null);
+	let editPromptState = $state<EditPromptState | null>(null);
+	let editPromptDraft = $state('');
+	let editPromptError = $state<string | null>(null);
+	let editPromptComposer = $state<HTMLTextAreaElement | null>(null);
 	let mentionState = $state<ResourceMentionState | null>(null);
 	let dragDepth = $state(0);
 	let isChatDropActive = $state(false);
@@ -1169,6 +1180,7 @@
 		messages.filter((message): message is AssistantMessage => message.role === 'assistant')
 	);
 	const draftTokenCount = $derived(estimateTokenCount(draft));
+	const editDraftTokenCount = $derived(estimateTokenCount(editPromptDraft));
 	const lastAssistantMessage = $derived(
 		assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1] : null
 	);
@@ -1508,6 +1520,13 @@
 		messages = [...messages, { id: createId(), role: 'system', content, createdAt: Date.now() }];
 	}
 
+	function closeEditPromptModal() {
+		editPromptState = null;
+		editPromptDraft = '';
+		editPromptError = null;
+		editingMessageId = null;
+	}
+
 	function resetTransientConversationState({ clearDraft }: { clearDraft: boolean }) {
 		currentRequest?.abort();
 		currentRequest = null;
@@ -1532,6 +1551,7 @@
 		if (!nextThreadId) {
 			messages = [];
 			attachments = [];
+			closeEditPromptModal();
 			return;
 		}
 
@@ -1539,6 +1559,7 @@
 		const cachedAttachments = threadAttachmentCache[nextThreadId];
 		messages = cachedMessages ? cloneChatMessages(cachedMessages) : [];
 		attachments = cachedAttachments ? cloneThreadAttachments(cachedAttachments) : [];
+		closeEditPromptModal();
 	}
 
 	function getThreadPath(targetThreadId: string) {
@@ -2777,16 +2798,40 @@
 		isStreaming = false;
 	}
 
-	function clearConversationUiState() {
-		errorMessage = null;
-		toolExpanded = {};
-		toolGroupExpanded = {};
-		reasoningExpanded = {};
-		messageCopyState = {};
-		fullThreadCopyState = 'idle';
+	function openEditPromptModal(message: UserMessage) {
+		if (
+			isStreaming ||
+			retryingMessageId !== null ||
+			editingMessageId !== null ||
+			message.persistedSequence === null
+		) {
+			return;
+		}
+
+		editPromptState = {
+			messageId: message.id,
+			persistedSequence: message.persistedSequence,
+			attachmentIds: message.attachments.map((attachment) => attachment.id as AttachmentId)
+		};
+		editPromptDraft = message.content;
+		editPromptError = null;
+		editingMessageId = message.id;
+		void tick().then(() => {
+			editPromptComposer?.focus();
+			const end = editPromptDraft.length;
+			editPromptComposer?.setSelectionRange(end, end);
+		});
 	}
 
-	async function retryUserMessage(message: UserMessage) {
+	async function rewindAndResubmitUserMessage({
+		message,
+		prompt,
+		attachmentIds
+	}: {
+		message: UserMessage;
+		prompt: string;
+		attachmentIds: AttachmentId[];
+	}) {
 		if (
 			isStreaming ||
 			retryingMessageId !== null ||
@@ -2794,13 +2839,19 @@
 			!threadId ||
 			message.persistedSequence === null
 		) {
-			return;
+			return false;
 		}
 
 		const messageIndex = messages.findIndex((candidate) => candidate.id === message.id);
 
 		if (messageIndex === -1) {
-			return;
+			return false;
+		}
+
+		const trimmedPrompt = prompt.trim();
+
+		if (!trimmedPrompt) {
+			throw new Error('Prompt cannot be empty.');
 		}
 
 		const trimmedMessages = cloneChatMessages(messages.slice(0, messageIndex));
@@ -2816,8 +2867,77 @@
 			clearConversationUiState();
 			messages = trimmedMessages;
 			threadMessageCache[threadId] = cloneChatMessages(trimmedMessages);
-			await submitPrompt(message.content, {
+			await submitPrompt(trimmedPrompt, {
 				clearDraft: false,
+				attachmentIds
+			});
+			return true;
+		} finally {
+			retryingMessageId = null;
+		}
+	}
+
+	function handleEditPromptKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			closeEditPromptModal();
+			return;
+		}
+
+		if (event.key !== 'Enter' || event.shiftKey) {
+			return;
+		}
+
+		event.preventDefault();
+		void submitEditedPrompt();
+	}
+
+	async function submitEditedPrompt() {
+		if (!editPromptState) {
+			return;
+		}
+
+		const currentEditState = editPromptState;
+		const prompt = editPromptDraft;
+		const targetMessage = messages.find(
+			(candidate): candidate is UserMessage =>
+				candidate.role === 'user' && candidate.id === currentEditState.messageId
+		);
+
+		if (!targetMessage) {
+			closeEditPromptModal();
+			return;
+		}
+
+		closeEditPromptModal();
+
+		try {
+			await rewindAndResubmitUserMessage({
+				message: targetMessage,
+				prompt,
+				attachmentIds: currentEditState.attachmentIds
+			});
+		} catch (error) {
+			const message = getHumanErrorMessage(error, 'Failed to edit the selected prompt.');
+			errorMessage = message;
+			appendSystemMessage(message);
+		}
+	}
+
+	function clearConversationUiState() {
+		errorMessage = null;
+		toolExpanded = {};
+		toolGroupExpanded = {};
+		reasoningExpanded = {};
+		messageCopyState = {};
+		fullThreadCopyState = 'idle';
+	}
+
+	async function retryUserMessage(message: UserMessage) {
+		try {
+			await rewindAndResubmitUserMessage({
+				message,
+				prompt: message.content,
 				attachmentIds: message.attachments.map((attachment) => attachment.id as AttachmentId)
 			});
 		} catch (error) {
@@ -2827,8 +2947,6 @@
 			);
 			errorMessage = retryError;
 			appendSystemMessage(retryError);
-		} finally {
-			retryingMessageId = null;
 		}
 	}
 
@@ -3087,6 +3205,74 @@
 	ondrop={handleChatDrop}
 >
 	<div class="relative min-h-0 flex-1">
+		{#if editPromptState}
+			<div class="absolute inset-0 z-[75] flex items-center justify-center p-4" role="presentation">
+				<button
+					type="button"
+					class="absolute inset-0 bg-[hsl(var(--bc-bg))]/82 backdrop-blur-sm"
+					onclick={closeEditPromptModal}
+					aria-label="Close edit prompt dialog"
+				></button>
+				<div
+					class="bc-card relative flex w-full max-w-2xl flex-col gap-4 p-5 shadow-[0_24px_80px_hsl(var(--bc-shadow)/0.5)]"
+					role="dialog"
+					aria-modal="true"
+					aria-label="Edit prompt"
+					tabindex="-1"
+				>
+					<div class="flex items-start justify-between gap-4">
+						<div class="space-y-1">
+							<h2 class="text-base font-semibold text-[hsl(var(--bc-fg))]">Edit prompt</h2>
+							<p class="bc-muted text-sm">
+								Sending this will replace the selected message and rerun everything after it.
+							</p>
+						</div>
+						<button
+							type="button"
+							class="chat-message-action"
+							onclick={closeEditPromptModal}
+							aria-label="Close edit prompt dialog"
+						>
+							Cancel
+						</button>
+					</div>
+
+					<textarea
+						bind:this={editPromptComposer}
+						bind:value={editPromptDraft}
+						class="bc-scrollbar min-h-44 w-full resize-y border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface-2))] px-4 py-3 text-sm leading-6 text-[hsl(var(--bc-fg))] placeholder:text-[hsl(var(--bc-fg-muted))] focus:border-[hsl(var(--bc-accent))] focus:outline-none"
+						placeholder="Rewrite the prompt..."
+						onkeydown={handleEditPromptKeydown}
+					></textarea>
+
+					<div class="flex items-center justify-between gap-3">
+						<div class="space-y-1">
+							{#if editPromptError}
+								<p class="text-sm text-[hsl(var(--bc-error))]">{editPromptError}</p>
+							{:else}
+								<p class="bc-muted text-xs">
+									Press Enter to send. Use Shift+Enter for a new line.
+								</p>
+							{/if}
+						</div>
+						<div class="flex items-center gap-3">
+							<span class="bc-muted text-xs tabular-nums">
+								{formatTokenCount(editDraftTokenCount)} {editDraftTokenCount === 1 ? 'token' : 'tokens'}
+							</span>
+							<button
+								type="button"
+								class="bc-btn"
+								onclick={() => void submitEditedPrompt()}
+								disabled={!editPromptDraft.trim() || retryingMessageId === editPromptState.messageId}
+							>
+								{retryingMessageId === editPromptState.messageId ? 'Sending...' : 'Send'}
+							</button>
+						</div>
+					</div>
+				</div>
+			</div>
+		{/if}
+
 		{#if spotlightAttachment}
 			<div
 				class="absolute inset-0 z-[70] flex items-center justify-center overflow-hidden bg-black/80 p-4 backdrop-blur-sm sm:p-6"
@@ -3188,6 +3374,17 @@
 							{/if}
 							<p class="text-sm leading-6 whitespace-pre-wrap">{message.content}</p>
 							<div class="chat-message-actions">
+								<button
+									type="button"
+									class="chat-message-action"
+									onclick={() => openEditPromptModal(message)}
+									disabled={isStreaming ||
+										retryingMessageId !== null ||
+										editingMessageId !== null ||
+										message.persistedSequence === null}
+								>
+									{editingMessageId === message.id ? 'Editing...' : 'Edit'}
+								</button>
 								<button
 									type="button"
 									class="chat-message-action"
