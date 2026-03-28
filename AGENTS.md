@@ -57,3 +57,24 @@ fmt-check: vp fmt packages/convex --check
 Shortcuts
 apps: vp run --filter ./apps/_ check
 packages: vp run --filter ./packages/_ check
+
+## Cursor Cloud specific instructions
+
+### Architecture
+
+- **@btca/server** (`apps/server`): Effect v4 HTTP server, self-contained with no external service dependencies. Listens on a random port. Start: `vp run @btca/server#dev`. Health check: `GET /health`.
+- **@btca/cli** (`apps/cli`): React/Ink TUI that depends on `@btca/server`. Build: `vp run @btca/cli#build`.
+- **@btca/webapp** (`apps/webapp`): SvelteKit 5 app (Vite dev server). Start: `vp run @btca/webapp#dev`. Requires many external SaaS env vars (Convex, WorkOS, Upstash, Exa, OpenAI) — see `apps/webapp/.env.example`. The dev server starts and serves the UI without env vars, but auth/agent features won't work.
+- **@btca/convex** (`packages/convex`): Convex schema/component package. `convex dev` requires a Convex deployment.
+- **@btca/autumn** (`packages/autumn`): Autumn billing component package.
+
+### Running commands
+
+- All commands use `vp` (vite-plus). Run via `npx vp ...` or just `vp ...` if on PATH.
+- No automated tests exist yet (`vp run test -r` will error with "Task not found").
+- `pnpm install` will warn about ignored build scripts (esbuild, protobufjs, msgpackr-extract); these are non-blocking — the project works without them.
+- The webapp uses `vite` remapped to `@voidzero-dev/vite-plus-core` (Vite 8 beta). The vite-plugin-svelte emits an experimental support warning — this is expected.
+
+### Webapp dev without external services
+
+The webapp SvelteKit dev server will start and serve pages without any `.env` file, but authentication, agent threads, and other features requiring Convex/WorkOS/Upstash/Exa/OpenAI will not function. For full e2e testing of webapp features, all env vars from `apps/webapp/.env.example` must be set.
