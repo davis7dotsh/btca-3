@@ -23,7 +23,7 @@
 		findAgentModelOptionForProviderModel,
 		getAgentModelOption
 	} from '$lib/models';
-	import { normalizeResourceName } from '$lib/resources';
+	import { extractTaggedResourceNames, normalizeResourceName } from '$lib/resources';
 	import type { AgentModelId, AgentModelOption } from '$lib/models';
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 	import type {
@@ -55,6 +55,12 @@
 		createdAt: number;
 		updatedAt: number;
 		itemCount: number;
+	}
+
+	interface TaggedThreadResource {
+		id: string | null;
+		name: string;
+		itemCount: number | null;
 	}
 
 	type QueryState<T> = {
@@ -440,6 +446,17 @@
 	});
 	const formatTokenCount = (value: number) => numberFormatter.format(value);
 	const formatCost = (value: number) => currencyFormatter.format(value);
+	const estimateTokenCount = (value: string) => {
+		const trimmed = value.trim();
+
+		if (trimmed.length === 0) {
+			return 0;
+		}
+
+		const wordCount = trimmed.split(/\s+/u).filter(Boolean).length;
+		const punctuationCount = (trimmed.match(/[^\w\s]/gu) ?? []).length;
+		return Math.max(wordCount + Math.ceil(punctuationCount / 2), Math.ceil(trimmed.length / 4));
+	};
 	const getAssistantToolDurationMs = (message: AssistantMessage) => {
 		const liveToolDurationMs =
 			message.pending &&
@@ -1151,6 +1168,7 @@
 	const assistantMessages = $derived(
 		messages.filter((message): message is AssistantMessage => message.role === 'assistant')
 	);
+	const draftTokenCount = $derived(estimateTokenCount(draft));
 	const lastAssistantMessage = $derived(
 		assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1] : null
 	);
@@ -1234,6 +1252,35 @@
 			.map((candidate: { resource: ResourceListItem; score: number }) => candidate.resource);
 
 		return rankedMatches;
+	});
+	const taggedThreadResources = $derived.by(() => {
+		const resourcesByName = new Map(
+			resourceItems.map((resource) => [normalizeResourceName(resource.name), resource] as const)
+		);
+		const taggedResources: TaggedThreadResource[] = [];
+		const seenNames = new Set<string>();
+
+		for (const message of messages) {
+			if (message.role !== 'user') {
+				continue;
+			}
+
+			for (const taggedName of extractTaggedResourceNames(message.content)) {
+				if (seenNames.has(taggedName)) {
+					continue;
+				}
+
+				seenNames.add(taggedName);
+				const resource = resourcesByName.get(taggedName);
+				taggedResources.push({
+					id: resource?.id ?? null,
+					name: resource?.name ?? taggedName,
+					itemCount: resource?.itemCount ?? null
+				});
+			}
+		}
+
+		return taggedResources;
 	});
 	$effect(() => {
 		if (routeThreadId === threadId) {
@@ -3643,6 +3690,15 @@
 				onkeyup={handleComposerKeyup}
 			></textarea>
 
+			<button
+				type="button"
+				class="input-attachment-btn"
+				disabled={isStreaming || retryingMessageId !== null || !isModelSelectionReady}
+				onclick={openAttachmentPicker}
+			>
+				Add image
+			</button>
+
 			{#if isStreaming}
 				<button type="button" class="send-btn" onclick={stopStreaming} aria-label="Stop streaming">
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
@@ -3720,22 +3776,40 @@
 				{/if}
 			</div>
 
-			<button
-				type="button"
-				class="bc-btn px-3 py-1.5 text-[11px]"
-				disabled={isStreaming || retryingMessageId !== null || !isModelSelectionReady}
-				onclick={openAttachmentPicker}
-			>
-				Add image
-			</button>
+			<div class="input-footer-meta">
+				{#if taggedThreadResources.length > 0}
+					<div class="flex min-w-0 items-center gap-2 overflow-hidden text-[11px] text-[hsl(var(--bc-fg-muted))]">
+						<span class="shrink-0 uppercase tracking-[0.18em]">Tagged</span>
+						<div class="flex min-w-0 flex-wrap gap-1.5">
+							{#each taggedThreadResources as resource (resource.name)}
+								{#if resource.id}
+									<a
+										href={resolve(`/app/resources/${resource.id}`)}
+										class="inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--bc-border))/0.75] bg-[hsl(var(--bc-surface))]/65 px-2 py-1 leading-none text-[11px] text-[hsl(var(--bc-fg-muted))] transition hover:border-[hsl(var(--bc-success))/0.3] hover:text-[hsl(var(--bc-fg))]"
+									>
+										<span class="font-medium text-[hsl(var(--bc-fg))]">@{resource.name}</span>
+										{#if resource.itemCount !== null}
+											<span>{resource.itemCount}</span>
+										{/if}
+									</a>
+								{:else}
+									<div
+										class="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[hsl(var(--bc-border))/0.75] bg-[hsl(var(--bc-surface))]/50 px-2 py-1 leading-none text-[11px] text-[hsl(var(--bc-fg-muted))]"
+										title="This resource was tagged earlier in the thread but is no longer available."
+									>
+										<span class="font-medium">@{resource.name}</span>
+										<span class="uppercase tracking-[0.14em]">missing</span>
+									</div>
+								{/if}
+							{/each}
+						</div>
+					</div>
+				{/if}
 
-			<p class="bc-muted">Shift+Enter · Enter sends</p>
-
-			{#if lastAssistantText.trim()}
-				<span class="bc-muted ml-auto tabular-nums">
-					{lastAssistantText.length.toLocaleString()} chars
+				<span class="bc-muted tabular-nums whitespace-nowrap">
+					{formatTokenCount(draftTokenCount)} {draftTokenCount === 1 ? 'token' : 'tokens'}
 				</span>
-			{/if}
+			</div>
 		</div>
 	</div>
 </div>
