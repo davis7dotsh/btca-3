@@ -69,6 +69,9 @@ catalogs:
     autumn-js:
       specifier: ^1.1.2
       version: 1.1.2
+    clipboardy:
+      specifier: ^5.3.1
+      version: 5.3.1
     concurrently:
       specifier: ^9.2.1
       version: 9.2.1
@@ -138,6 +141,9 @@ importers:
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.14
+      clipboardy:
+        specifier: 'catalog:'
+        version: 5.3.1
       effect:
         specifier: 4.0.0-beta.40
         version: 4.0.0-beta.40

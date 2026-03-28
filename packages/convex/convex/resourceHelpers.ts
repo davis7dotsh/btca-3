@@ -11,6 +11,9 @@ const parseUrl = (value: string) => {
   }
 };
 
+const getHostedFaviconUrl = (pageUrl: URL) =>
+  `https://www.google.com/s2/favicons?domain=${encodeURIComponent(pageUrl.hostname)}&sz=64`;
+
 export const normalizeResourceName = (value: string) => {
   const normalized = value
     .trim()
@@ -66,6 +69,9 @@ const getIconCandidates = (html: string, pageUrl: URL) => {
     }
   }
 
+  candidates.add(new URL("/favicon.png", pageUrl.origin).toString());
+  candidates.add(new URL("/favicon.svg", pageUrl.origin).toString());
+  candidates.add(new URL("/apple-touch-icon.png", pageUrl.origin).toString());
   candidates.add(new URL("/favicon.ico", pageUrl.origin).toString());
 
   return [...candidates];
@@ -81,8 +87,42 @@ const canUseIconResponse = (response: Response) => {
   return contentType === null || contentType.startsWith("image/");
 };
 
+const canUseIconUrl = async (url: string) => {
+  try {
+    const headResponse = await fetch(url, {
+      method: "HEAD",
+      redirect: "follow",
+      headers: {
+        "user-agent": "btca-resource-icon-fetcher",
+      },
+    });
+
+    if (canUseIconResponse(headResponse)) {
+      return true;
+    }
+  } catch {
+    // Fall through to GET.
+  }
+
+  try {
+    const getResponse = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      headers: {
+        "user-agent": "btca-resource-icon-fetcher",
+        range: "bytes=0-0",
+      },
+    });
+
+    return canUseIconResponse(getResponse);
+  } catch {
+    return false;
+  }
+};
+
 export const discoverFaviconUrl = async (url: string) => {
   const pageUrl = parseUrl(url);
+  const fallbackCandidates = getIconCandidates("", pageUrl);
 
   try {
     const pageResponse = await fetch(pageUrl.toString(), {
@@ -93,31 +133,31 @@ export const discoverFaviconUrl = async (url: string) => {
     });
 
     if (!pageResponse.ok) {
-      return new URL("/favicon.ico", pageUrl.origin).toString();
+      for (const candidate of fallbackCandidates) {
+        if (await canUseIconUrl(candidate)) {
+          return candidate;
+        }
+      }
+
+      return getHostedFaviconUrl(pageUrl);
     }
 
     const html = await pageResponse.text();
 
     for (const candidate of getIconCandidates(html, pageUrl)) {
-      try {
-        const response = await fetch(candidate, {
-          method: "HEAD",
-          redirect: "follow",
-          headers: {
-            "user-agent": "btca-resource-icon-fetcher",
-          },
-        });
-
-        if (canUseIconResponse(response)) {
-          return candidate;
-        }
-      } catch {
-        continue;
+      if (await canUseIconUrl(candidate)) {
+        return candidate;
       }
     }
   } catch {
-    return new URL("/favicon.ico", pageUrl.origin).toString();
+    for (const candidate of fallbackCandidates) {
+      if (await canUseIconUrl(candidate)) {
+        return candidate;
+      }
+    }
+
+    return getHostedFaviconUrl(pageUrl);
   }
 
-  return new URL("/favicon.ico", pageUrl.origin).toString();
+  return getHostedFaviconUrl(pageUrl);
 };

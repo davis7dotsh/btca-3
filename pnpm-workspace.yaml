@@ -34,6 +34,7 @@ catalog:
   ai: ^6.0.138
   atmn: 1.1.7
   autumn-js: ^1.1.2
+  clipboardy: ^5.3.1
   concurrently: ^9.2.1
   convex: ^1.34.0
   convex-helpers: ^0.1.114

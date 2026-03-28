@@ -402,6 +402,35 @@ export const removeItem = authedMutation({
   },
 });
 
+export const refreshItemIcon = authedMutation({
+  args: {
+    itemId: v.id("resourceItems"),
+  },
+  handler: async (ctx, args) => {
+    const userId = getUserId(ctx.identity);
+    const { item, resource } = await getOwnedResourceItem(ctx, args.itemId, userId);
+    const updatedAt = Date.now();
+    const updatedBy = createCurator(userId);
+    const iconUrl = await discoverFaviconUrl(item.url);
+
+    await ctx.db.patch(item._id, {
+      iconUrl,
+      updatedAt,
+      updatedBy,
+    });
+
+    await ctx.db.patch(resource._id, {
+      updatedAt,
+      updatedBy,
+    });
+
+    return {
+      itemId: item._id,
+      iconUrl,
+    };
+  },
+});
+
 export const reorderItems = authedMutation({
   args: {
     resourceId: v.id("resources"),

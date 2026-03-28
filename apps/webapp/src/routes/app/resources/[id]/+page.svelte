@@ -29,6 +29,17 @@
 		iconUrl: string | null;
 	};
 
+	const getHostedFaviconUrl = (url: string) => {
+		try {
+			const parsed = new URL(url);
+			return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(parsed.hostname)}&sz=64`;
+		} catch {
+			return null;
+		}
+	};
+
+	const getDisplayIconUrl = (item: ResourceItemView) => item.iconUrl ?? getHostedFaviconUrl(item.url);
+
 	const authContext = getAuthContext();
 	const convex = browser ? useConvexClient() : null;
 
@@ -42,6 +53,7 @@
 	let isDeletingResource = $state(false);
 	let editingItemId = $state<string | null>(null);
 	let activeItemMutationId = $state<string | null>(null);
+	let refreshingItemIconId = $state<string | null>(null);
 	let itemDrafts = $state<Record<string, ItemDraft>>({});
 	let newItemName = $state('');
 	let newItemDescription = $state('');
@@ -220,6 +232,25 @@
 			itemError = getHumanErrorMessage(error, 'Failed to remove the resource item.');
 		} finally {
 			activeItemMutationId = null;
+		}
+	}
+
+	async function refreshItemIcon(itemId: string) {
+		if (refreshingItemIconId !== null || !convex) {
+			return;
+		}
+
+		itemError = null;
+		refreshingItemIconId = itemId;
+
+		try {
+			await convex.mutation(api.authed.resources.refreshItemIcon, {
+				itemId: itemId as Id<'resourceItems'>
+			});
+		} catch (error) {
+			itemError = getHumanErrorMessage(error, 'Failed to refresh the item icon.');
+		} finally {
+			refreshingItemIconId = null;
 		}
 	}
 
@@ -423,9 +454,20 @@
 												<div class="flex items-center gap-3">
 													{#if item.iconUrl}
 														<img
-															src={item.iconUrl}
+															src={getDisplayIconUrl(item) ?? undefined}
 															alt=""
 															class="h-5 w-5 rounded-sm border border-[hsl(var(--bc-border))] bg-white object-contain"
+															onerror={(event) => {
+																const fallbackUrl = getHostedFaviconUrl(item.url);
+																const image = event.currentTarget as HTMLImageElement;
+
+																if (fallbackUrl && image.src !== fallbackUrl) {
+																	image.src = fallbackUrl;
+																	return;
+																}
+
+																image.style.display = 'none';
+															}}
 														/>
 													{/if}
 													<h3 class="font-semibold">{item.name}</h3>
@@ -443,6 +485,14 @@
 											</div>
 
 											<div class="flex shrink-0 items-center gap-1">
+												<button
+													type="button"
+													class="bc-btn px-2.5 py-1.5 text-xs"
+													disabled={refreshingItemIconId !== null}
+													onclick={() => void refreshItemIcon(item.id)}
+												>
+													{refreshingItemIconId === item.id ? '...' : 'Icon'}
+												</button>
 												<button
 													type="button"
 													class="bc-btn px-2.5 py-1.5 text-xs"

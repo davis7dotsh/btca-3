@@ -17,6 +17,7 @@
     "@tmcp/adapter-zod": "catalog:",
     "@tmcp/transport-stdio": "catalog:",
     "@types/react": "catalog:",
+    "clipboardy": "catalog:",
     "effect": "4.0.0-beta.40",
     "ink": "catalog:",
     "ink-text-input": "catalog:",

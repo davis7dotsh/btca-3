@@ -1,3 +1,4 @@
+import clipboard from "clipboardy";
 import { Box, render, Static, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -105,7 +106,7 @@ type ResourcesResponse = {
 type CommandItem = {
   readonly name: string;
   readonly description: string;
-  readonly action: "clear" | "resume" | "quit";
+  readonly action: "clear" | "copy" | "copyAll" | "resume" | "quit";
 };
 
 const tuiContext = globalThis.__BTCA_TUI_CONTEXT__;
@@ -120,7 +121,7 @@ const colors = {
   error: "#F7768E",
   muted: "#565F89",
   success: "#73DACA",
-  text: "#A9B1D6",
+  text: "#E8ECF8",
   warning: "#E0AF68",
 } as const;
 
@@ -133,6 +134,8 @@ const defaultMessages: readonly Message[] = [
 
 const commands: readonly CommandItem[] = [
   { name: "/clear", description: "Clear the current chat", action: "clear" },
+  { name: "/copy", description: "Copy your questions + last answer", action: "copy" },
+  { name: "/copy-all", description: "Copy the full text transcript", action: "copyAll" },
   { name: "/resume", description: "Resume a previous thread", action: "resume" },
   { name: "/quit", description: "Exit the TUI", action: "quit" },
 ];
@@ -519,6 +522,66 @@ const parseThreadMessages = (thread: ThreadDetail | null) => {
   } as const;
 };
 
+const getLastAssistantText = (
+  messages: readonly Message[],
+  currentAssistant: AssistantMessage | null,
+) => {
+  if (currentAssistant?.content.trim()) {
+    return currentAssistant.content.trim();
+  }
+
+  const assistantMessages = messages.filter(
+    (message): message is AssistantMessage => message.role === "assistant",
+  );
+  const lastAssistant = assistantMessages.at(-1);
+  return lastAssistant?.content.trim() || null;
+};
+
+const formatTranscriptLine = (role: "user" | "assistant", content: string) => {
+  const label = role === "user" ? "You" : "Btca";
+  return `${label}: ${content.trim()}`;
+};
+
+const buildCopyTranscript = (
+  messages: readonly Message[],
+  currentAssistant: AssistantMessage | null,
+  mode: "latest" | "all",
+) => {
+  const userLines = messages
+    .filter((message): message is Extract<Message, { role: "user" }> => message.role === "user")
+    .map((message) => formatTranscriptLine("user", message.content))
+    .filter((line) => line.length > 0);
+
+  if (mode === "latest") {
+    const lastAssistantText = getLastAssistantText(messages, currentAssistant);
+    if (!lastAssistantText) {
+      return null;
+    }
+
+    return [...userLines, formatTranscriptLine("assistant", lastAssistantText)].join("\n\n");
+  }
+
+  const transcriptLines = messages
+    .flatMap((message) => {
+      if (message.role === "user") {
+        return message.content.trim() ? [formatTranscriptLine("user", message.content)] : [];
+      }
+
+      if (message.role === "assistant") {
+        return message.content.trim() ? [formatTranscriptLine("assistant", message.content)] : [];
+      }
+
+      return [];
+    })
+    .filter((line) => line.length > 0);
+
+  if (currentAssistant?.content.trim()) {
+    transcriptLines.push(formatTranscriptLine("assistant", currentAssistant.content));
+  }
+
+  return transcriptLines.length > 0 ? transcriptLines.join("\n\n") : null;
+};
+
 const Header = ({ model, provider }: { model: string; provider: string }) => (
   <Box>
     <Text bold color={colors.accent}>
@@ -550,8 +613,6 @@ const AssistantMessageRow = ({
   isActive: boolean;
   message: AssistantMessage;
 }) => {
-  const errorTools = message.toolCalls.filter((tc) => tc.status === "error");
-
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text bold color={colors.accent}>
@@ -560,34 +621,29 @@ const AssistantMessageRow = ({
       {message.reasoningStatus === "running" ? (
         <Text color={colors.dim}>{"  thinking..."}</Text>
       ) : null}
-      {isActive ? (
-        message.toolCalls.map((toolCall) => (
-          <Text
-            key={toolCall.id}
-            color={
-              toolCall.status === "error"
-                ? colors.error
-                : toolCall.status === "running"
-                  ? colors.warning
-                  : colors.dim
-            }
-          >
-            {`  ${toolCall.status === "running" ? "◌" : toolCall.status === "error" ? "✕" : "●"} ${toolCall.name}${toolCall.summary ? `  ${toolCall.summary}` : ""}`}
-          </Text>
-        ))
-      ) : message.toolCalls.length > 0 ? (
-        <>
-          <Text color={colors.dim}>
-            {`  ${message.toolCalls.length} tool${message.toolCalls.length === 1 ? "" : "s"} ran`}
-          </Text>
-          {errorTools.map((toolCall) => (
-            <Text key={toolCall.id} color={colors.error}>
-              {`  ✕ ${toolCall.name}${toolCall.summary ? `  ${toolCall.summary}` : ""}`}
+      {message.toolCalls.length > 0 ? (
+        <Box flexDirection="column" marginTop={1}>
+          {message.toolCalls.map((toolCall) => (
+            <Text
+              key={toolCall.id}
+              color={
+                toolCall.status === "error"
+                  ? colors.error
+                  : toolCall.status === "running"
+                    ? colors.warning
+                    : colors.dim
+              }
+            >
+              {`  ${toolCall.status === "running" ? "◌" : toolCall.status === "error" ? "✕" : "●"} ${toolCall.name}${toolCall.summary ? `  ${toolCall.summary}` : ""}`}
             </Text>
           ))}
-        </>
+        </Box>
       ) : null}
-      {message.content ? <Text color={colors.text}>{message.content}</Text> : null}
+      {message.content ? (
+        <Box marginTop={1}>
+          <Text color={colors.text}>{message.content}</Text>
+        </Box>
+      ) : null}
       {isActive &&
       !message.content &&
       message.toolCalls.length === 0 &&
@@ -789,6 +845,35 @@ const App = () => {
       setThreadId(null);
       setThreadResources([]);
       resetTranscript(defaultMessages, null);
+      return;
+    }
+
+    if (command.action === "copy" || command.action === "copyAll") {
+      const transcript = buildCopyTranscript(
+        messages,
+        currentAssistantRef.current,
+        command.action === "copy" ? "latest" : "all",
+      );
+
+      if (!transcript) {
+        addSystemMessage(
+          command.action === "copy"
+            ? "Nothing to copy yet. Ask a question first."
+            : "Nothing to copy yet.",
+        );
+        return;
+      }
+
+      try {
+        await clipboard.write(transcript);
+        addSystemMessage(
+          command.action === "copy"
+            ? "Copied your questions and the latest btca reply."
+            : "Copied the full text transcript.",
+        );
+      } catch (error) {
+        addSystemMessage(error instanceof Error ? error.message : "Failed to copy the transcript.");
+      }
       return;
     }
 
@@ -1284,7 +1369,7 @@ const App = () => {
 
       {resumeOpen ? <ResumeList threads={threads} selectedIndex={selectedThreadIndex} /> : null}
 
-      <Box marginTop={1}>
+      <Box marginTop={2}>
         <Text color={resumeOpen ? colors.dim : colors.accent}>{"❯ "}</Text>
         <TextInput
           key={inputRenderKey}
