@@ -9,6 +9,7 @@ import { AuthError, AuthService } from "./services/auth";
 import { BoxService, BoxServiceError } from "./services/box";
 import { ConvexError, ConvexPrivateService } from "./services/convex";
 import { ExaService, ExaServiceError } from "./services/exa";
+import { RunControlService } from "./services/runControl";
 import { RunStreamService, RunStreamServiceError } from "./services/runStream";
 
 const appLayer = Layer.mergeAll(
@@ -18,6 +19,7 @@ const appLayer = Layer.mergeAll(
   AuthService.layer,
   ExaService.layer,
   BoxService.layer,
+  RunControlService.layer,
   RunStreamService.layer,
   AgentService.layer,
 );
@@ -201,6 +203,7 @@ export const effectRunner = async <T>(
     | AuthService
     | ExaService
     | BoxService
+    | RunControlService
     | RunStreamService
     | AgentService
   >,

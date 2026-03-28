@@ -9,9 +9,11 @@ import {
 import {
   getEnvApiKey,
   type Api,
+  type AssistantMessage,
   type ImageContent,
   type Message,
   type Model,
+  type Usage,
 } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import type { Id } from "@btca/convex/data-model";
@@ -53,6 +55,7 @@ import {
   ExaServiceError,
   WEB_CONTENT_MAX_CHARACTERS,
 } from "./exa";
+import { RunControlService, RunKilledError } from "./runControl";
 import {
   generateThreadTitle,
   getErrorMessage,
@@ -255,8 +258,8 @@ interface AgentDef {
     input: PromptThreadAgentInput,
   ) => Effect.Effect<
     PromptThreadAgentStream,
-    SandboxServiceError | ExaServiceError | AgentError | ConvexError,
-    BoxService | ConvexPrivateService | ExaService | AutumnService
+    SandboxServiceError | ExaServiceError | AgentError | ConvexError | RunKilledError,
+    BoxService | ConvexPrivateService | ExaService | AutumnService | RunControlService
   >;
 }
 
@@ -513,13 +516,62 @@ const buildRunMetrics = (args: {
   } satisfies AgentRunMetrics;
 };
 
-const createReadFileTool = (sandbox: ResolvedSandboxAdapter, threadId: string) =>
+const isRunKilledError = (error: unknown): error is RunKilledError =>
+  error instanceof RunKilledError;
+const createEmptyUsage = (): Usage => ({
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    total: 0,
+  },
+});
+const cloneMessage = <T extends Message>(message: T): T => structuredClone(message);
+const createCanceledAssistantMessage = (args: {
+  partialAssistant: AssistantMessage | null;
+  selectedModel: ReturnType<typeof getAgentModel>;
+  timestamp: number;
+}) => {
+  if (args.partialAssistant) {
+    return {
+      ...cloneMessage(args.partialAssistant),
+      stopReason: "aborted" as const,
+      errorMessage: "Canceled",
+      timestamp: args.timestamp,
+    } satisfies AssistantMessage;
+  }
+
+  return {
+    role: "assistant",
+    content: [],
+    api: args.selectedModel.model.api,
+    provider: args.selectedModel.model.provider,
+    model: args.selectedModel.model.id,
+    usage: createEmptyUsage(),
+    stopReason: "aborted",
+    errorMessage: "Canceled",
+    timestamp: args.timestamp,
+  } satisfies AssistantMessage;
+};
+
+const createReadFileTool = (
+  sandbox: ResolvedSandboxAdapter,
+  threadId: string,
+  throwIfRunAborted: () => void,
+) =>
   ({
     label: "Read File",
     name: "read_file",
     description: `Read a text file from the ${sandbox.providerLabel} sandbox for the current thread.`,
     parameters: readFileSchema,
     execute: async (_toolCallId, args) => {
+      throwIfRunAborted();
       const result = await Effect.runPromise(
         sandbox.readFile({
           threadId,
@@ -528,6 +580,7 @@ const createReadFileTool = (sandbox: ResolvedSandboxAdapter, threadId: string) =
           endLine: args.endLine,
         }),
       );
+      throwIfRunAborted();
 
       return {
         content: toTextResult(truncateText(result.content)),
@@ -536,13 +589,18 @@ const createReadFileTool = (sandbox: ResolvedSandboxAdapter, threadId: string) =
     },
   }) satisfies AgentTool<typeof readFileSchema, SandboxReadFileResult>;
 
-const createExecCommandTool = (sandbox: ResolvedSandboxAdapter, threadId: string) =>
+const createExecCommandTool = (
+  sandbox: ResolvedSandboxAdapter,
+  threadId: string,
+  throwIfRunAborted: () => void,
+) =>
   ({
     label: "Exec Command",
     name: "exec_command",
     description: `Run a shell command in the ${sandbox.providerLabel} sandbox for the current thread.`,
     parameters: execCommandSchema,
     execute: async (_toolCallId, args) => {
+      throwIfRunAborted();
       const result = await Effect.runPromise(
         sandbox.executeCommand({
           threadId,
@@ -550,6 +608,7 @@ const createExecCommandTool = (sandbox: ResolvedSandboxAdapter, threadId: string
           cwd: args.cwd,
         }),
       );
+      throwIfRunAborted();
 
       return {
         content: toTextResult(
@@ -569,7 +628,7 @@ const createExecCommandTool = (sandbox: ResolvedSandboxAdapter, threadId: string
     },
   }) satisfies AgentTool<typeof execCommandSchema, SandboxExecuteCommandResult>;
 
-const createSearchWebTool = (exa: ExaDef) =>
+const createSearchWebTool = (exa: ExaDef, throwIfRunAborted: () => void) =>
   ({
     label: "Search Web",
     name: "searchWeb",
@@ -577,8 +636,10 @@ const createSearchWebTool = (exa: ExaDef) =>
       "Find candidate web pages for a query. Returns metadata only so you can expand selected URLs later with getWebContent.",
     parameters: searchWebSchema,
     execute: async (_toolCallId, args) => {
+      throwIfRunAborted();
       try {
         const result = await Effect.runPromise(exa.searchWeb(args));
+        throwIfRunAborted();
 
         return {
           content: toTextResult(truncateText(JSON.stringify(result, null, 2))),
@@ -603,7 +664,7 @@ const createSearchWebTool = (exa: ExaDef) =>
     ExaSearchWebResult | { error: string; query: string; results: []; count: 0 }
   >;
 
-const createGetWebContentTool = (exa: ExaDef) =>
+const createGetWebContentTool = (exa: ExaDef, throwIfRunAborted: () => void) =>
   ({
     label: "Get Web Content",
     name: "getWebContent",
@@ -611,8 +672,10 @@ const createGetWebContentTool = (exa: ExaDef) =>
       "Expand one or more URLs into readable content. Use this after searchWeb or when the user already provided a specific URL. If you pass maxCharacters, it must be 6000 or less.",
     parameters: getWebContentSchema,
     execute: async (_toolCallId, args) => {
+      throwIfRunAborted();
       try {
         const result = await Effect.runPromise(exa.getWebContent(args));
+        throwIfRunAborted();
 
         return {
           content: toTextResult(truncateText(JSON.stringify(result, null, 2))),
@@ -642,14 +705,15 @@ const createThreadContext = (
   threadId: string,
   messages: Message[],
   taggedResources: readonly TaggedResourcePromptResource[],
+  throwIfRunAborted: () => void,
 ) => ({
   systemPrompt: buildSystemPrompt(sandbox.workspaceDir, taggedResources),
   messages,
   tools: [
-    createReadFileTool(sandbox, threadId),
-    createExecCommandTool(sandbox, threadId),
-    createSearchWebTool(exa),
-    createGetWebContentTool(exa),
+    createReadFileTool(sandbox, threadId, throwIfRunAborted),
+    createExecCommandTool(sandbox, threadId, throwIfRunAborted),
+    createSearchWebTool(exa, throwIfRunAborted),
+    createGetWebContentTool(exa, throwIfRunAborted),
   ],
 });
 
@@ -696,7 +760,9 @@ const createPromptThread =
     Effect.gen(function* () {
       const exa = yield* ExaService;
       const autumn = yield* AutumnService;
+      const runControl = yield* RunControlService;
       const convex = yield* ConvexPrivateService;
+      const runSignal = runControl.getSignal(input.runId);
       const promptPreview = getPromptPreview(input.prompt);
       const runStartedAt = Date.now();
       const markThreadError = (error: unknown) =>
@@ -713,8 +779,69 @@ const createPromptThread =
             },
           })
           .pipe(Effect.catchCause(() => Effect.void));
+      const stopRun = (message = "The agent run was stopped.") =>
+        convex
+          .mutation({
+            func: api.private.agentThreads.setThreadState,
+            args: {
+              threadId: input.threadId,
+              userId: input.userId,
+              timestamp: Date.now(),
+              status: "idle",
+              activity: message,
+              isMcp: input.isMcp,
+            },
+          })
+          .pipe(Effect.catchCause(() => Effect.void));
+      const throwIfRunAborted = (message?: string) =>
+        runControl.throwIfAborted({
+          runId: input.runId,
+          threadId: input.threadId,
+          ...(message ? { message } : {}),
+        });
+      const persistCanceledRun = (args: {
+        promptMessage: Message;
+        sandboxId: string;
+        selectedModel: ReturnType<typeof getAgentModel>;
+        completedMessages: Message[];
+        partialAssistant: AssistantMessage | null;
+      }) =>
+        Effect.gen(function* () {
+          const persistedMessages = [
+            args.promptMessage,
+            ...args.completedMessages,
+            createCanceledAssistantMessage({
+              partialAssistant: args.partialAssistant,
+              selectedModel: args.selectedModel,
+              timestamp: Date.now(),
+            }),
+          ];
+          const storedMessages = yield* Effect.all(
+            persistedMessages.map((message) => serializePersistedMessage(input.threadId, message)),
+          );
+
+          yield* convex.mutation({
+            func: api.private.agentThreads.appendThreadMessages,
+            args: {
+              threadId: input.threadId,
+              userId: input.userId,
+              sandboxId: args.sandboxId,
+              selectedModelId: args.selectedModel.id,
+              isMcp: input.isMcp,
+              startedAt: runStartedAt,
+              completedAt: Date.now(),
+              promptPreview,
+              messages: storedMessages,
+              attachmentIds:
+                input.attachmentIds && input.attachmentIds.length > 0
+                  ? (input.attachmentIds as Id<"agentThreadAttachments">[])
+                  : undefined,
+            },
+          });
+        });
 
       return yield* Effect.gen(function* () {
+        throwIfRunAborted();
         yield* convex.mutation({
           func: api.private.agentThreads.setThreadState,
           args: {
@@ -756,6 +883,7 @@ const createPromptThread =
             return attachmentsBySequence;
           });
 
+        throwIfRunAborted();
         const taggedResourceNames = extractTaggedResourceNames(input.prompt);
         const persistedThread: StoredAgentThreadContext | null = yield* convex.query({
           func: api.private.agentThreads.getThreadContext,
@@ -850,6 +978,8 @@ const createPromptThread =
           input.threadId,
           persistedThread?.thread.sandboxId ?? undefined,
         );
+        runControl.setSandboxId(input.runId, ensuredSandbox.id);
+        throwIfRunAborted();
         const threadSandbox: ResolvedSandboxAdapter = {
           ...resolvedSandbox,
           ensureThreadSandbox: () => Effect.succeed(ensuredSandbox),
@@ -900,9 +1030,12 @@ const createPromptThread =
             timestamp: Date.now(),
           },
         ];
+        const promptMessage = cloneMessage(messages[0] as Message);
         const turnCost = createEmptyTurnCostBreakdown();
         const pendingToolCalls = new Map<string, { toolName: string; args: ToolCallArguments }>();
         const toolCallIds = new Set<string>();
+        const completedMessages: Message[] = [];
+        let partialAssistantMessage: AssistantMessage | null = null;
         let activeAssistantGenerationStartedAt: number | null = null;
         let assistantGenerationDurationMs = 0;
         let assistantOutputTokens = 0;
@@ -914,8 +1047,10 @@ const createPromptThread =
             input.threadId,
             persistedMessages,
             taggedResources,
+            throwIfRunAborted,
           ),
           createThreadConfig(input.threadId, selectedModel.model),
+          runSignal ?? undefined,
         );
 
         return {
@@ -933,6 +1068,24 @@ const createPromptThread =
           events: (async function* () {
             try {
               for await (const event of events) {
+                throwIfRunAborted();
+
+                if (event.type === "message_update" && event.message.role === "assistant") {
+                  partialAssistantMessage = cloneMessage(event.message);
+                }
+
+                if (event.type === "message_end") {
+                  if (event.message.role === "assistant") {
+                    const completedAssistant = cloneMessage(event.message);
+                    completedMessages.push(completedAssistant);
+                    partialAssistantMessage = null;
+                  }
+
+                  if (event.message.role === "toolResult") {
+                    completedMessages.push(cloneMessage(event.message));
+                  }
+                }
+
                 const eventTimestamp = getEventTimestamp(event);
 
                 if (event.type === "tool_execution_start") {
@@ -1008,6 +1161,7 @@ const createPromptThread =
                 }
 
                 if (event.type === "agent_end") {
+                  throwIfRunAborted();
                   turnCost.totalUsd = addUsd(turnCost.modelUsd, turnCost.boxUsd, turnCost.exaUsd);
                   const runMetrics = buildRunMetrics({
                     priceUsd: turnCost.totalUsd,
@@ -1116,12 +1270,34 @@ const createPromptThread =
                 yield event;
               }
             } catch (error) {
+              if (isRunKilledError(error)) {
+                await Effect.runPromise(
+                  persistCanceledRun({
+                    promptMessage,
+                    sandboxId: ensuredSandbox.id,
+                    selectedModel,
+                    completedMessages,
+                    partialAssistant: partialAssistantMessage,
+                  }),
+                );
+                await Effect.runPromise(stopRun(error.message));
+                throw error;
+              }
+
               await Effect.runPromise(markThreadError(error));
               throw error;
             }
           })(),
         } satisfies PromptThreadAgentStream;
-      }).pipe(Effect.tapError(markThreadError));
+      }).pipe(
+        Effect.tapError((error: unknown) => {
+          if (isRunKilledError(error)) {
+            return stopRun(error.message);
+          }
+
+          return markThreadError(error);
+        }),
+      );
     });
 
 const boxSandboxAdapter: SandboxAdapter = {

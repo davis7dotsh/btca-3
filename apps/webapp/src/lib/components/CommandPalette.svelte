@@ -92,7 +92,7 @@
 				id: `thread-${thread.threadId}`,
 				group: 'Threads',
 				label: thread.title?.trim() || `Thread ${thread.threadId.slice(0, 8)}`,
-				sublabel: `${thread.messageCount} msgs · ${timestampFormatter.format(thread.updatedAt)}`,
+				sublabel: `${thread.userMessageCount} msgs · ${timestampFormatter.format(thread.updatedAt)}`,
 				icon: MessageSquare,
 				onSelect: () => {
 					void goto(resolve(`/app/chat/${encodeURIComponent(thread.threadId)}`), {

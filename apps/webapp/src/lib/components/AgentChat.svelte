@@ -175,6 +175,7 @@
 		role: 'assistant';
 		parts: ContentPart[];
 		pending: boolean;
+		canceled: boolean;
 		createdAt: number;
 		stats: AssistantStats;
 	}
@@ -873,6 +874,7 @@
 			role: 'assistant',
 			parts: [],
 			pending: false,
+			canceled: false,
 			createdAt,
 			stats: createAssistantStats()
 		};
@@ -931,6 +933,7 @@
 					hydratedMessages,
 					parsedMessage.timestamp
 				);
+				assistantMessage.canceled = parsedMessage.stopReason === 'aborted';
 				const mappedModel = findAgentModelOptionForProviderModel({
 					api: parsedMessage.api,
 					provider: parsedMessage.provider,
@@ -957,7 +960,7 @@
 					activeToolCallStartedAt: null
 				};
 
-				if (parsedMessage.errorMessage?.trim()) {
+				if (parsedMessage.errorMessage?.trim() && parsedMessage.stopReason !== 'aborted') {
 					assistantMessage.parts.push({
 						id: createId(),
 						type: 'text',
@@ -2369,7 +2372,8 @@
 			case 'run_error':
 				updateAssistantMessage(assistantId, (message) => ({
 					...message,
-					pending: false
+					pending: false,
+					canceled: /stopped|canceled/i.test(streamEvent.message) ? true : message.canceled
 				}));
 				updateAssistantStats(assistantId, (stats) => ({
 					...stats,
@@ -2521,6 +2525,17 @@
 		return (await response.json()) as ActiveAgentRunResponse | null;
 	}
 
+	async function killActiveRun(runId: string) {
+		const response = await fetch(`/api/agent/runs/${encodeURIComponent(runId)}`, {
+			method: 'DELETE'
+		});
+
+		if (!response.ok) {
+			const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+			throw new Error(payload?.message ?? 'Failed to stop the active chat run.');
+		}
+	}
+
 	async function submitPrompt(
 		promptOverride = draft,
 		options?: { clearDraft?: boolean; attachmentIds?: AttachmentId[] }
@@ -2591,6 +2606,7 @@
 				parts: [],
 				createdAt: Date.now(),
 				pending: true,
+				canceled: false,
 				stats: createAssistantStats(selectedModel)
 			}
 		];
@@ -2738,6 +2754,7 @@
 						parts: [],
 						createdAt: Date.now(),
 						pending: true,
+						canceled: false,
 						stats: createAssistantStats(selectedModel)
 					}
 				];
@@ -2792,10 +2809,38 @@
 		}
 	}
 
-	function stopStreaming() {
+	async function stopStreaming() {
+		const activeThreadId = threadId;
+
 		currentRequest?.abort();
 		currentRequest = null;
 		isStreaming = false;
+
+		if (!activeThreadId) {
+			return;
+		}
+
+		try {
+			const resumeState = getRunResumeState(activeThreadId);
+			const activeRun = resumeState ? { runId: resumeState.runId } : await getActiveRun(activeThreadId);
+			const runId = activeRun?.runId;
+
+			if (!runId) {
+				return;
+			}
+
+			await killActiveRun(runId);
+			clearRunResumeState(activeThreadId);
+			messages = messages.map((message) =>
+				message.role === 'assistant' && message.pending
+					? { ...message, pending: false, canceled: true }
+					: message
+			);
+		} catch (error) {
+			const message = getHumanErrorMessage(error, 'Failed to stop the active run.');
+			errorMessage = message;
+			appendSystemMessage(message);
+		}
 	}
 
 	function openEditPromptModal(message: UserMessage) {
@@ -3416,6 +3461,9 @@
 								{#if message.pending}
 									<div class="assistant-meta-chip assistant-meta-chip-live">Running</div>
 								{/if}
+								{#if message.canceled}
+									<div class="assistant-meta-chip">Canceled</div>
+								{/if}
 							</div>
 
 							<div class="assistant-sections">
@@ -3897,7 +3945,12 @@
 			</button>
 
 			{#if isStreaming}
-				<button type="button" class="send-btn" onclick={stopStreaming} aria-label="Stop streaming">
+				<button
+					type="button"
+					class="send-btn"
+					onclick={() => void stopStreaming()}
+					aria-label="Stop streaming"
+				>
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
 						<rect x="6" y="6" width="12" height="12" rx="2" />
 					</svg>

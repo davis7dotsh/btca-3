@@ -57,6 +57,7 @@ export interface PromptThreadAgentRequestInput {
 }
 
 export interface PromptThreadAgentInput extends PromptThreadAgentRequestInput {
+  readonly runId: string;
   readonly userId: string;
   readonly isMcp?: boolean;
 }
@@ -97,6 +98,7 @@ export interface StoredAgentThread {
   readonly lastPromptAt: number;
   readonly lastCompletedAt: number | null;
   readonly messageCount: number;
+  readonly userMessageCount: number;
 }
 
 export interface StoredAgentThreadMessage {
@@ -141,6 +143,7 @@ export interface AgentThreadListItem {
   readonly lastPromptAt: number;
   readonly lastCompletedAt: number | null;
   readonly messageCount: number;
+  readonly userMessageCount: number;
 }
 
 export interface AgentPromptStreamError {

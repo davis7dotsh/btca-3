@@ -14,6 +14,7 @@ type BoxOperation =
   | "getBox"
   | "createThreadBox"
   | "ensureThreadBox"
+  | "deleteBox"
   | "readFile"
   | "executeCommand";
 
@@ -42,6 +43,7 @@ export interface BoxDef {
   ensureThreadBox: (
     input: EnsureThreadBoxInput,
   ) => Effect.Effect<{ box: UpstashBox; created: boolean }, BoxServiceError>;
+  deleteBox: (boxId: string) => Effect.Effect<void, BoxServiceError>;
   readFile: (
     input: SandboxReadFileInput & { readonly boxId?: string },
   ) => Effect.Effect<SandboxReadFileResult, BoxServiceError>;
@@ -276,6 +278,21 @@ export class BoxService extends ServiceMap.Service<BoxService, BoxDef>()("BoxSer
         ),
       );
 
+    const deleteBox: BoxDef["deleteBox"] = (boxId) =>
+      Effect.tryPromise({
+        try: async () => {
+          const box = await Box.get(boxId, getBoxConfig());
+          await box.delete();
+        },
+        catch: (cause) =>
+          toBoxServiceError({
+            cause,
+            operation: "deleteBox",
+            message: `Failed to delete Upstash Box ${boxId}`,
+            kind: "box_delete_error",
+          }),
+      });
+
     const readFile: BoxDef["readFile"] = (input) =>
       Effect.tryPromise({
         try: async () => {
@@ -341,6 +358,7 @@ export class BoxService extends ServiceMap.Service<BoxService, BoxDef>()("BoxSer
       getBox,
       createThreadBox,
       ensureThreadBox,
+      deleteBox,
       readFile,
       executeCommand,
     };

@@ -16,6 +16,7 @@ const toThreadListItem = (thread: {
   lastPromptAt: number;
   lastCompletedAt?: number;
   messageCount: number;
+  userMessageCount: number;
 }) => ({
   threadId: thread.threadId,
   title: thread.title ?? null,
@@ -29,6 +30,7 @@ const toThreadListItem = (thread: {
   lastPromptAt: thread.lastPromptAt,
   lastCompletedAt: thread.lastCompletedAt ?? null,
   messageCount: thread.messageCount,
+  userMessageCount: thread.userMessageCount,
 });
 
 export const list = authedQuery({
@@ -40,7 +42,21 @@ export const list = authedQuery({
       .withIndex("by_user_id", (query) => query.eq("userId", userId))
       .collect();
 
-    return threads.sort((a, b) => b.updatedAt - a.updatedAt).map(toThreadListItem);
+    const threadsWithCounts = await Promise.all(
+      threads.map(async (thread) => {
+        const messages = await ctx.db
+          .query("agentThreadMessages")
+          .withIndex("by_thread_sequence", (query) => query.eq("threadId", thread.threadId))
+          .collect();
+
+        return {
+          ...thread,
+          userMessageCount: messages.filter((message) => message.role === "user").length,
+        };
+      }),
+    );
+
+    return threadsWithCounts.sort((a, b) => b.updatedAt - a.updatedAt).map(toThreadListItem);
   },
 });
 
@@ -53,7 +69,21 @@ export const listMcp = authedQuery({
       .withIndex("by_user_id", (query) => query.eq("userId", userId))
       .collect();
 
-    return threads
+    const threadsWithCounts = await Promise.all(
+      threads.map(async (thread) => {
+        const messages = await ctx.db
+          .query("agentThreadMessages")
+          .withIndex("by_thread_sequence", (query) => query.eq("threadId", thread.threadId))
+          .collect();
+
+        return {
+          ...thread,
+          userMessageCount: messages.filter((message) => message.role === "user").length,
+        };
+      }),
+    );
+
+    return threadsWithCounts
       .filter((thread) => thread.isMcp === true)
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map(toThreadListItem);
@@ -89,7 +119,10 @@ export const get = authedQuery({
       .collect();
 
     return {
-      thread: toThreadListItem(thread),
+      thread: toThreadListItem({
+        ...thread,
+        userMessageCount: messages.filter((message) => message.role === "user").length,
+      }),
       messages: messages.map((message) => ({
         sequence: message.sequence,
         role: message.role,

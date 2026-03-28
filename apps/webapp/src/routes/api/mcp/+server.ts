@@ -159,6 +159,7 @@ const askAgent = (input: { userId: string; prompt: string; threadId?: string; mo
       const agent = yield* AgentService;
       const threadId = input.threadId ?? crypto.randomUUID();
       const { events, model, sandboxId } = yield* agent.promptThread({
+        runId: `mcp-${crypto.randomUUID()}`,
         threadId,
         prompt: input.prompt,
         modelId: input.modelId,

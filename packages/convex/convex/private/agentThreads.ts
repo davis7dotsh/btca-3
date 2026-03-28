@@ -11,6 +11,9 @@ const storedMessageValidator = v.object({
 
 const threadStatusValidator = v.union(v.literal("idle"), v.literal("running"), v.literal("error"));
 
+const getUserMessageCount = (messages: readonly Doc<"agentThreadMessages">[]) =>
+  messages.filter((message) => message.role === "user").length;
+
 export const getThreadContext = privateQuery({
   args: {
     threadId: v.string(),
@@ -64,6 +67,7 @@ export const getThreadContext = privateQuery({
         lastPromptAt: thread.lastPromptAt,
         lastCompletedAt: thread.lastCompletedAt ?? null,
         messageCount: thread.messageCount,
+        userMessageCount: getUserMessageCount(messages),
       },
       messages: messages.map((message: Doc<"agentThreadMessages">) => ({
         sequence: message.sequence,
