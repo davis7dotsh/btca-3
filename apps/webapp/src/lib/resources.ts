@@ -1,12 +1,18 @@
 import type { TaggedResourcePromptResource } from "$lib/types/resources";
 
-export const normalizeResourceName = (value: string) => {
-  const normalized = value
+const normalizeResourceSlug = (value: string) =>
+  value
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-{2,}/g, "-");
+
+export const getResourceNameError = (value: string) =>
+  normalizeResourceSlug(value).length === 0 ? "Enter a resource name." : null;
+
+export const normalizeResourceName = (value: string) => {
+  const normalized = normalizeResourceSlug(value);
 
   return normalized.length > 0 ? normalized : "resource";
 };

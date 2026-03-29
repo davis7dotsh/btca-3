@@ -7,6 +7,7 @@
 	import type { Id } from '@btca/convex/data-model';
 	import { api } from '@btca/convex/api';
 	import { getHumanErrorMessage } from '$lib/errors';
+	import { getResourceNameError } from '$lib/resources';
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 
 	type QueryState<T> = {
@@ -127,7 +128,12 @@
 			return;
 		}
 
-		resourceError = null;
+		resourceError = getResourceNameError(resourceName);
+
+		if (resourceError) {
+			return;
+		}
+
 		isSavingResource = true;
 
 		try {
@@ -327,6 +333,7 @@
 							<span class="text-sm font-medium">Name</span>
 							<input
 								bind:value={resourceName}
+								oninput={() => (resourceError = null)}
 								class="w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
 								placeholder="svelte"
 							/>

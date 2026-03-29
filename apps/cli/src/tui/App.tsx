@@ -183,13 +183,51 @@ const stripMentionTokens = (input: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const fetchJson = async <T,>(path: string, init?: RequestInit) => {
-  const response = await fetch(`${tuiContext.baseUrl}${path}`, init);
-  if (!response.ok) {
-    throw new Error(`Server returned ${response.status} for ${path}`);
+const trimMessage = (value: string) => value.trim().replace(/\s+/g, " ");
+
+const readResponseText = async (response: Response) => {
+  try {
+    return await response.text();
+  } catch {
+    return "";
+  }
+};
+
+const getResponseErrorMessage = (path: string, response: Response, bodyText: string) => {
+  if (bodyText.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(bodyText) as unknown;
+
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        "message" in parsed &&
+        typeof parsed.message === "string" &&
+        parsed.message.trim().length > 0
+      ) {
+        return trimMessage(parsed.message);
+      }
+    } catch {
+      return trimMessage(bodyText);
+    }
   }
 
-  return (await response.json()) as T;
+  return `Server returned ${response.status} for ${path}.`;
+};
+
+const fetchJson = async <T,>(path: string, init?: RequestInit) => {
+  const response = await fetch(`${tuiContext.baseUrl}${path}`, init);
+  const bodyText = await readResponseText(response);
+
+  if (!response.ok) {
+    throw new Error(getResponseErrorMessage(path, response, bodyText));
+  }
+
+  try {
+    return JSON.parse(bodyText) as T;
+  } catch {
+    throw new Error(`Server returned an invalid JSON response for ${path}.`);
+  }
 };
 
 const parseSseEvent = (rawEvent: string) => {
@@ -971,8 +1009,13 @@ const App = () => {
         signal: abortController.signal,
       });
 
-      if (!response.ok || response.body === null) {
-        throw new Error(`Server returned ${response.status} for /ask`);
+      if (!response.ok) {
+        const bodyText = await readResponseText(response);
+        throw new Error(getResponseErrorMessage("/ask", response, bodyText));
+      }
+
+      if (response.body === null) {
+        throw new Error("Server returned an empty response body for /ask.");
       }
 
       const decoder = new TextDecoder();

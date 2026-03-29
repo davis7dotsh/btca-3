@@ -30,6 +30,7 @@ import { AgentThreadStore, ThreadStoreError } from "./agent/threads.ts";
 import { AuthError, AuthService, isAuthProviderId } from "./auth/service.ts";
 import { Config, ConfigError } from "./config.ts";
 import { ResourceError, ResourcesService } from "./resources/service.ts";
+import { ProcessError } from "./shared/process.ts";
 import { WorkspaceError, WorkspaceService } from "./workspace/service.ts";
 
 export { Config, ConfigError } from "./config.ts";
@@ -100,15 +101,129 @@ type AddResourceInput =
       readonly scope?: ResourceScope;
     };
 
+const getErrorCause = (error: unknown) => {
+  if (typeof error !== "object" || error === null || !("cause" in error)) {
+    return undefined;
+  }
+
+  return (error as { readonly cause?: unknown }).cause;
+};
+
+const trimMessage = (value: string) => value.trim().replace(/\s+/g, " ");
+
+const getSystemErrorMessage = (error: NodeJS.ErrnoException) => {
+  switch (error.code) {
+    case "ENOENT":
+      return error.path ? `No such file or directory: ${error.path}` : "No such file or directory.";
+    case "EACCES":
+    case "EPERM":
+      return error.path
+        ? `Permission denied: ${error.path}`
+        : "Permission denied while accessing a file or directory.";
+    case "EADDRINUSE":
+      return "That network port is already in use.";
+    case "ECONNREFUSED":
+      return "Connection refused by the target service.";
+    case "ENOTFOUND":
+      return "The requested host name could not be resolved.";
+    case "ETIMEDOUT":
+      return "The operation timed out.";
+    default:
+      return undefined;
+  }
+};
+
+const getOwnErrorMessage = (error: unknown): string | undefined => {
+  if (
+    error instanceof ConfigError ||
+    error instanceof AuthError ||
+    error instanceof ResourceError ||
+    error instanceof WorkspaceError ||
+    error instanceof ThreadStoreError ||
+    error instanceof AgentError
+  ) {
+    return trimMessage(error.message);
+  }
+
+  if (error instanceof ProcessError) {
+    const causeMessage = getOwnErrorMessage(error.cause);
+    const output =
+      [error.stderr?.trim(), error.stdout?.trim()].find(
+        (value) => typeof value === "string" && value,
+      ) ?? undefined;
+
+    return trimMessage(
+      [error.message, causeMessage, output]
+        .filter((value, index, values) => {
+          if (!value) {
+            return false;
+          }
+
+          return values.indexOf(value) === index;
+        })
+        .join(" "),
+    );
+  }
+
+  if (error instanceof SyntaxError) {
+    return trimMessage(error.message || "Invalid JSON input.");
+  }
+
+  if (error instanceof Error) {
+    const systemMessage = getSystemErrorMessage(error as NodeJS.ErrnoException);
+    if (systemMessage) {
+      return systemMessage;
+    }
+
+    if (typeof error.message === "string" && error.message.trim().length > 0) {
+      return trimMessage(error.message);
+    }
+  }
+
+  if (typeof error === "string" && error.trim().length > 0) {
+    return trimMessage(error);
+  }
+
+  return undefined;
+};
+
+const getErrorMessages = (error: unknown) => {
+  const seen = new Set<unknown>();
+  const messages: string[] = [];
+  let current: unknown = error;
+
+  while (current !== undefined && !seen.has(current)) {
+    seen.add(current);
+    const message = getOwnErrorMessage(current);
+
+    if (
+      message &&
+      !messages.some(
+        (existing) =>
+          existing === message || existing.includes(message) || message.includes(existing),
+      )
+    ) {
+      messages.push(message);
+    }
+
+    current = getErrorCause(current);
+  }
+
+  return messages;
+};
+
 const getErrorMessage = (error: unknown) => {
-  if (error instanceof ConfigError) return error.message;
-  if (error instanceof AuthError) return error.message;
-  if (error instanceof ResourceError) return error.message;
-  if (error instanceof WorkspaceError) return error.message;
-  if (error instanceof ThreadStoreError) return error.message;
-  if (error instanceof AgentError) return error.message;
-  if (error instanceof Error) return error.message;
-  return String(error);
+  const messages = getErrorMessages(error);
+
+  if (messages.length === 0) {
+    return "An unexpected error occurred.";
+  }
+
+  if (messages.length === 1) {
+    return messages[0]!;
+  }
+
+  return `${messages[0]} Details: ${messages[1]!}`;
 };
 
 const parseAuthProvider = (value: string) => {
@@ -245,6 +360,8 @@ const parseRemoveResourceInput = (body: unknown) => {
 };
 
 const getErrorStatus = (error: unknown) => {
+  const message = getErrorMessage(error).toLowerCase();
+
   if (
     error instanceof ConfigError ||
     error instanceof AuthError ||
@@ -254,6 +371,14 @@ const getErrorStatus = (error: unknown) => {
     error instanceof AgentError
   ) {
     return 400;
+  }
+
+  if (
+    message.includes("not found") ||
+    message.includes("does not exist") ||
+    message.includes("no such file or directory")
+  ) {
+    return 404;
   }
 
   return 500;

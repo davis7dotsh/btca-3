@@ -728,10 +728,22 @@ const createThreadConfig = (threadId: string, model: Model<Api>) =>
     ...(model.reasoning ? { reasoning: "medium" as const } : {}),
     ...(model.api === "openai-responses" ? { reasoningSummary: "concise" as const } : {}),
     convertToLlm: (messages: AgentMessage[]) =>
-      messages.filter(
-        (message) =>
-          message.role === "user" || message.role === "assistant" || message.role === "toolResult",
-      ),
+      messages.flatMap((message) => {
+        if (
+          message.role !== "user" &&
+          message.role !== "assistant" &&
+          message.role !== "toolResult"
+        ) {
+          return [];
+        }
+
+        if (message.role === "assistant" && "runMetrics" in message) {
+          const { runMetrics: _runMetrics, ...assistantMessage } = message;
+          return [assistantMessage];
+        }
+
+        return [message];
+      }),
   }) satisfies AgentLoopConfig & {
     reasoning?: "minimal" | "low" | "medium" | "high" | "xhigh";
     reasoningSummary?: "auto" | "detailed" | "concise" | null;

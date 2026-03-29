@@ -23,7 +23,7 @@ export const normalizeResourceName = (value: string) => {
     .replace(/-{2,}/g, "-");
 
   if (normalized.length === 0) {
-    throw new Error("Expected a resource name.");
+    throw new Error("Enter a resource name.");
   }
 
   return normalized;

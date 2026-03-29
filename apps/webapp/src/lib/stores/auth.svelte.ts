@@ -13,7 +13,7 @@ export interface AuthUser {
 }
 
 interface AuthStoreBootstrap {
-  readonly user: AuthUser | null;
+  readonly getUser: () => AuthUser | null;
 }
 
 class AuthStore {
@@ -23,9 +23,16 @@ class AuthStore {
 
   constructor(initialState?: AuthStoreBootstrap) {
     if (initialState) {
-      this.status = initialState.user ? "authenticated" : "unauthenticated";
-      this.currentUser = initialState.user;
-      this.errorMessage = null;
+      const syncUser = () => {
+        const user = initialState.getUser();
+
+        this.status = user ? "authenticated" : "unauthenticated";
+        this.currentUser = user;
+        this.errorMessage = null;
+      };
+
+      syncUser();
+      $effect(syncUser);
       return;
     }
 

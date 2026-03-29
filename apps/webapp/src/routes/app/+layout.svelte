@@ -10,7 +10,7 @@
 
 	const { children, data } = $props<{ children: () => unknown; data: LayoutData }>();
 	const authContext = setAuthContext({
-		user: data.session?.user ?? null
+		getUser: () => data.session?.user ?? null
 	});
 
 	let sidebarOpen = $state(false);

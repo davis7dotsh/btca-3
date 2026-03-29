@@ -3,7 +3,6 @@ import {
   type AuthState,
   type AuthProviderId,
   type HealthResponse,
-  type HelloResponse,
 } from "@btca/server";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
@@ -118,7 +117,6 @@ export interface ServerDef {
   readonly baseUrl: string;
   readonly quiet: boolean;
   readonly health: () => Effect.Effect<HealthResponse, ServerServiceError>;
-  readonly hello: (name: string) => Effect.Effect<HelloResponse, ServerServiceError>;
   readonly getConfig: () => Effect.Effect<ConfigSnapshotResponse, ServerServiceError>;
   readonly getResources: () => Effect.Effect<ResourcesResponse, ServerServiceError>;
   readonly getAuthState: () => Effect.Effect<AuthState, ServerServiceError>;
@@ -178,22 +176,100 @@ const normalizeBaseUrl = (url: string) => {
   return parsedUrl.toString().replace(/\/$/, "");
 };
 
+const trimMessage = (value: string) => value.trim().replace(/\s+/g, " ");
+
+const readResponseText = async (response: Response) => {
+  try {
+    return await response.text();
+  } catch {
+    return "";
+  }
+};
+
+const getResponseErrorMessage = (path: string, response: Response, bodyText: string) => {
+  if (bodyText.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(bodyText) as unknown;
+
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        "message" in parsed &&
+        typeof parsed.message === "string" &&
+        parsed.message.trim().length > 0
+      ) {
+        return trimMessage(parsed.message);
+      }
+    } catch {
+      return trimMessage(bodyText);
+    }
+  }
+
+  return `Server returned ${response.status} for ${path}.`;
+};
+
+const getTransportErrorMessage = ({
+  baseUrl,
+  path,
+  cause,
+}: {
+  baseUrl: string;
+  path: string;
+  cause: unknown;
+}) => {
+  if (cause instanceof ServerServiceError) {
+    return cause.message;
+  }
+
+  if (cause instanceof Error) {
+    const message = cause.message.trim();
+
+    if (
+      message.includes("fetch failed") ||
+      message.includes("ECONNREFUSED") ||
+      message.includes("ENOTFOUND") ||
+      message.includes("ETIMEDOUT")
+    ) {
+      return `Unable to connect to the BTCA server at ${baseUrl}.`;
+    }
+
+    if (message.length > 0) {
+      return trimMessage(message);
+    }
+  }
+
+  return `Unable to complete the request to ${path} on ${baseUrl}.`;
+};
+
 const makeServerService = ({ baseUrl, quiet }: { baseUrl: string; quiet: boolean }): ServerDef => {
   const rpc = <A>(path: `/${string}`, init?: RequestInit) =>
     Effect.tryPromise({
       try: async () => {
         const response = await fetch(`${baseUrl}${path}`, init);
-        const body = await response.json();
+        const bodyText = await readResponseText(response);
 
         if (!response.ok) {
-          throw new Error(`Server returned ${response.status} for ${path}`);
+          throw new ServerServiceError({
+            message: getResponseErrorMessage(path, response, bodyText),
+          });
         }
 
-        return body as A;
+        try {
+          return JSON.parse(bodyText) as A;
+        } catch (cause) {
+          throw new ServerServiceError({
+            message: `Server returned an invalid JSON response for ${path}.`,
+            cause,
+          });
+        }
       },
       catch: (cause) =>
         new ServerServiceError({
-          message: `Failed to call ${path} on ${baseUrl}`,
+          message: getTransportErrorMessage({
+            baseUrl,
+            path,
+            cause,
+          }),
           cause,
         }),
     });
@@ -202,7 +278,6 @@ const makeServerService = ({ baseUrl, quiet }: { baseUrl: string; quiet: boolean
     baseUrl,
     quiet,
     health: () => rpc<HealthResponse>("/health"),
-    hello: (name) => rpc<HelloResponse>(`/hello/${encodeURIComponent(name)}`),
     getConfig: () => rpc<ConfigSnapshotResponse>("/config"),
     getResources: () => rpc<ResourcesResponse>("/resources"),
     getAuthState: () =>
@@ -273,21 +348,27 @@ const makeServerService = ({ baseUrl, quiet }: { baseUrl: string; quiet: boolean
           });
 
           if (!response.ok) {
-            const body = await response.text();
-            throw new Error(
-              `Server returned ${response.status} for /ask${body.length > 0 ? `: ${body}` : ""}`,
-            );
+            const bodyText = await readResponseText(response);
+            throw new ServerServiceError({
+              message: getResponseErrorMessage("/ask", response, bodyText),
+            });
           }
 
           if (response.body === null) {
-            throw new Error("Server returned an empty response body for /ask");
+            throw new ServerServiceError({
+              message: "Server returned an empty response body for /ask.",
+            });
           }
 
           return response.body;
         },
         catch: (cause) =>
           new ServerServiceError({
-            message: `Failed to call /ask on ${baseUrl}`,
+            message: getTransportErrorMessage({
+              baseUrl,
+              path: "/ask",
+              cause,
+            }),
             cause,
           }),
       }),

@@ -5,6 +5,7 @@
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import { api } from '@btca/convex/api';
 	import { getHumanErrorMessage } from '$lib/errors';
+	import { getResourceNameError } from '$lib/resources';
 	import { getAuthContext } from '$lib/stores/auth.svelte';
 
 	type ResourceListItem = {
@@ -45,7 +46,12 @@
 			return;
 		}
 
-		createError = null;
+		createError = getResourceNameError(newResourceName);
+
+		if (createError) {
+			return;
+		}
+
 		isCreating = true;
 
 		try {
@@ -85,6 +91,7 @@
 						<span class="text-sm font-medium">Name</span>
 						<input
 							bind:value={newResourceName}
+							oninput={() => (createError = null)}
 							class="w-full border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] px-4 py-2.5 text-sm transition outline-none focus:border-[hsl(var(--bc-accent))]"
 							placeholder="svelte"
 						/>
@@ -95,7 +102,7 @@
 						<p class="text-sm text-red-500">{createError}</p>
 					{/if}
 
-					<button type="submit" class="bc-btn w-full">
+					<button type="submit" class="bc-btn w-full" disabled={isCreating}>
 						{isCreating ? 'Creating...' : 'Create resource'}
 					</button>
 				</form>

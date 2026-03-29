@@ -223,9 +223,11 @@ export const appendThreadMessages = privateMutation({
     }
 
     const nextMessageCount = baseSequence + args.messages.length;
+    const latestThread = await ctx.db.get(threadRef);
+    const nextTitle = latestThread?.title ?? thread?.title ?? args.promptPreview;
 
     await ctx.db.patch(threadRef, {
-      title: thread?.title ?? args.promptPreview,
+      title: nextTitle,
       sandboxId: args.sandboxId,
       selectedModelId: args.selectedModelId,
       isMcp: thread?.isMcp ?? args.isMcp ?? false,

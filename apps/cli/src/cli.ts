@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
-import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Cause from "effect/Cause";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Cli from "effect/unstable/cli";
 import { parse as parseJsonc } from "jsonc-parser";
 import { spawn } from "node:child_process";
@@ -407,6 +408,187 @@ const runTrackedEffectCommand = <A, E, R>(args: {
     startProperties: args.startProperties,
     action: args.action,
   });
+
+const trimMessage = (value: string) => value.trim().replace(/\s+/g, " ");
+
+const getErrorCause = (error: unknown) => {
+  if (typeof error !== "object" || error === null || !("cause" in error)) {
+    return undefined;
+  }
+
+  return (error as { readonly cause?: unknown }).cause;
+};
+
+const getOwnErrorMessage = (error: unknown): string | undefined => {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return trimMessage(error.message);
+  }
+
+  if (typeof error === "string" && error.trim().length > 0) {
+    return trimMessage(error);
+  }
+
+  return undefined;
+};
+
+const getErrorMessages = (error: unknown) => {
+  const seen = new Set<unknown>();
+  const messages: string[] = [];
+  let current: unknown = error;
+
+  while (current !== undefined && !seen.has(current)) {
+    seen.add(current);
+    const message = getOwnErrorMessage(current);
+
+    if (
+      message &&
+      !messages.some(
+        (existing) =>
+          existing === message || existing.includes(message) || message.includes(existing),
+      )
+    ) {
+      messages.push(message);
+    }
+
+    current = getErrorCause(current);
+  }
+
+  return messages;
+};
+
+const extractDisplayMessage = (messages: readonly string[]) => {
+  for (const message of messages) {
+    const detailsIndex = message.indexOf("Details:");
+
+    if (detailsIndex >= 0) {
+      const details = message.slice(detailsIndex + "Details:".length).trim();
+      if (details.length > 0) {
+        return details;
+      }
+    }
+  }
+
+  return messages.at(-1) ?? "An unexpected error occurred.";
+};
+
+const getErrorHint = (message: string) => {
+  if (message === "Prompt must not be empty.") {
+    return 'Pass a question with `-q`, for example: `btca ask -r svelte -q "How do stores work?"`.';
+  }
+
+  if (/^Resource ".*" was not found in the current config\.?$/u.test(message)) {
+    return 'Try adding it with "btca add", or run "btca resources" to see what is configured.';
+  }
+
+  if (message === "Resource reference must not be empty.") {
+    return "Pass at least one resource with `-r`, or use `btca resources` to see configured names.";
+  }
+
+  if (message === "No resources configured.") {
+    return "Add one first with `btca add <path-or-url>`, then try the command again.";
+  }
+
+  if (message.includes("is not authenticated")) {
+    return 'Run "btca connect" to add provider credentials.';
+  }
+
+  if (message.includes("Unable to connect to the BTCA server")) {
+    return 'Start the local server with "btca serve", or pass "--url" to an existing server.';
+  }
+
+  if (message === "The --port and --url flags are mutually exclusive.") {
+    return "Use either `--port` to start a local server or `--url` to target an existing one, but not both.";
+  }
+
+  if (message.startsWith("Invalid server URL: ")) {
+    return "Use a full HTTP URL like `http://127.0.0.1:8080`.";
+  }
+
+  if (message === "Server returned an empty response body for /ask.") {
+    return "The local server responded unexpectedly. Try again, and if it keeps happening restart it with `btca serve`.";
+  }
+
+  if (message.startsWith("Invalid npm reference ")) {
+    return "Use a package name like `react`, a versioned spec like `react@19`, or an npm URL.";
+  }
+
+  if (/^Resource ".*" already exists in the (default|global|local) config\.$/u.test(message)) {
+    return "Use a different `--name`, or remove the existing resource with `btca remove` before adding it again.";
+  }
+
+  if (message === 'Git resources require a non-empty "url".') {
+    return "Pass a git URL with `--type git`, for example: `btca add --type git --reference https://github.com/org/repo`.";
+  }
+
+  if (message === 'Local resources require a non-empty "path".') {
+    return "Pass a local file or directory path, for example: `btca add ./src --type local`.";
+  }
+
+  if (message === 'NPM resources require a non-empty "package".') {
+    return "Pass an npm package name, for example: `btca add react --type npm`.";
+  }
+
+  if (message.startsWith('Unsupported resource type "')) {
+    return "Use one of the supported types: `git`, `local`, or `npm`.";
+  }
+
+  if (message.startsWith('Remove resource requests require a non-empty "name".')) {
+    return "Pass the resource name to remove, or run `btca remove` without arguments to choose interactively.";
+  }
+
+  if (/^Resource ".*" does not exist\.$/u.test(message)) {
+    return "Run `btca resources` to find the configured name, then retry with that exact resource name.";
+  }
+
+  if (/^Resource ".*" was not found in ".*"\.$/u.test(message)) {
+    return "Run `btca resources` to confirm the configured name, then retry the remove command.";
+  }
+
+  if (/^Resource ".*" is built in and cannot be removed\.$/u.test(message)) {
+    return "Built-in resources come from BTCA defaults. Leave it as-is, or override it by adding a different resource name.";
+  }
+
+  if (message === "The connect and disconnect commands require an interactive terminal.") {
+    return "Run the command from an interactive terminal, or pass a complete non-interactive setup path instead.";
+  }
+
+  if (message === "API key must not be empty.") {
+    return "Paste a real provider API key when prompted, or cancel and rerun `btca connect`.";
+  }
+
+  if (message.endsWith("requires a non-empty API key.")) {
+    return "Provide a valid API key for that provider, then rerun `btca connect`.";
+  }
+
+  if (message.startsWith("OAuth is not available for ")) {
+    return "Choose a provider that supports the configured auth flow, or switch to one that uses API keys.";
+  }
+
+  if (message.includes("login requires interactive OAuth callbacks")) {
+    return "Run `btca connect` in an interactive terminal so the OAuth flow can prompt you.";
+  }
+
+  if (message.startsWith("Unsupported provider ")) {
+    return "Choose one of the supported providers shown by `btca connect`.";
+  }
+
+  if (message === "No providers are currently connected through auth.json.") {
+    return "Connect one first with `btca connect`.";
+  }
+
+  if (message === "Timed out waiting for the BTCA auth file lock.") {
+    return "Another BTCA auth operation may still be running. Wait a moment and try again.";
+  }
+
+  return undefined;
+};
+
+const formatTopLevelCliError = (error: unknown) => {
+  const message = extractDisplayMessage(getErrorMessages(error));
+  const hint = getErrorHint(message);
+
+  return hint ? `${message}\nHint: ${hint}` : message;
+};
 
 const parseGitHubUrl = (url: string) => {
   const patterns = [
@@ -816,6 +998,163 @@ const listResourceNames = (config: StoredCliConfig | null) =>
       )
     : [];
 
+const listWipeTargets = () => {
+  const cwd = process.cwd();
+
+  return [
+    {
+      target: path.resolve(cwd, PROJECT_CONFIG_FILENAME),
+      source: "project config",
+    },
+    {
+      target: path.resolve(GLOBAL_CONFIG_PATH),
+      source: "global config",
+    },
+  ];
+};
+
+const removeWipeTarget = (target: string) =>
+  Effect.tryPromise({
+    try: async () => {
+      try {
+        await Fs.access(target);
+      } catch (cause) {
+        if (cause && typeof cause === "object" && "code" in cause && cause.code === "ENOENT") {
+          return {
+            kind: "missing" as const,
+            target,
+          };
+        }
+
+        throw cause;
+      }
+
+      try {
+        await Fs.rm(target, { force: true });
+        return {
+          kind: "removed" as const,
+          target,
+        };
+      } catch (cause) {
+        return {
+          kind: "failed" as const,
+          target,
+          error: cause instanceof Error ? cause.message : String(cause),
+        };
+      }
+    },
+    catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+  });
+
+const confirmWipe = (targets: readonly { readonly target: string; readonly source: string }[]) =>
+  Effect.gen(function* () {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      return yield* Effect.fail(
+        new Error("Refusing to run wipe in non-interactive mode without --yes."),
+      );
+    }
+
+    yield* Console.log("");
+    yield* Console.log("WARNING: this will permanently delete BTCA config files.");
+    yield* Console.log("Only current-directory and global BTCA config files will be removed.");
+    yield* Console.log("");
+    yield* Console.log("Targets:");
+
+    for (const { target, source } of targets) {
+      yield* Console.log(`- ${target} (${source})`);
+    }
+
+    yield* Console.log("");
+    const answer = yield* promptLine("Type WIPE to continue: ");
+
+    if (answer !== "WIPE") {
+      yield* Console.log("Cancelled.");
+      return false;
+    }
+
+    return true;
+  });
+
+const wipe = Cli.Command.make(
+  "wipe",
+  {
+    yes: Cli.Flag.boolean("yes").pipe(
+      Cli.Flag.withAlias("y"),
+      Cli.Flag.withDescription("Skip the interactive confirmation prompt."),
+    ),
+  },
+  ({ yes }) =>
+    runTrackedEffectCommand({
+      command: "wipe",
+      mode: "wipe",
+      startProperties: {
+        yes,
+      },
+      action: Effect.gen(function* () {
+        const targets = listWipeTargets();
+
+        if (!yes) {
+          const confirmed = yield* confirmWipe(targets);
+          if (!confirmed) {
+            return;
+          }
+        }
+
+        const removed: string[] = [];
+        const missing: string[] = [];
+        const failed: string[] = [];
+
+        for (const { target, source } of targets) {
+          const result = yield* removeWipeTarget(target);
+
+          if (result.kind === "removed") {
+            removed.push(`${result.target} (${source})`);
+            continue;
+          }
+
+          if (result.kind === "missing") {
+            missing.push(`${result.target} (${source})`);
+            continue;
+          }
+
+          failed.push(`${result.target} (${source}) -> ${result.error}`);
+        }
+
+        yield* Console.log("");
+        yield* Console.log("BTCA wipe complete.");
+        yield* Console.log(`Directory: ${process.cwd()}`);
+        yield* Console.log(`Targets: ${targets.length}`);
+        yield* Console.log(`Removed: ${removed.length}`);
+        yield* Console.log(`Missing: ${missing.length}`);
+        yield* Console.log(`Failed: ${failed.length}`);
+
+        if (removed.length > 0) {
+          yield* Console.log("");
+          yield* Console.log("Removed paths:");
+          for (const line of removed) {
+            yield* Console.log(`- ${line}`);
+          }
+        }
+
+        if (missing.length > 0) {
+          yield* Console.log("");
+          yield* Console.log("Not found:");
+          for (const line of missing) {
+            yield* Console.log(`- ${line}`);
+          }
+        }
+
+        if (failed.length > 0) {
+          yield* Console.log("");
+          yield* Console.log("Failed removals:");
+          for (const line of failed) {
+            yield* Console.log(`- ${line}`);
+          }
+        }
+      }),
+    }),
+).pipe(Cli.Command.withDescription("Delete local and global BTCA config files."));
+
 const trackServerModelContext = (server: {
   readonly getConfig: () => Effect.Effect<
     {
@@ -972,19 +1311,6 @@ const btca = Cli.Command.make("btca").pipe(
   Cli.Command.withDescription("BTCA command line tools."),
   Cli.Command.withSharedFlags(serverFlags),
 );
-
-const hello = Cli.Command.make("hello", {}, () =>
-  runTrackedEffectCommand({
-    command: "hello",
-    mode: "hello",
-    action: Effect.gen(function* () {
-      const server = yield* Server;
-      const response = yield* server.hello("world");
-
-      yield* Console.log(response.message);
-    }),
-  }),
-).pipe(Cli.Command.withDescription("Print a friendly hello world."));
 
 const serve = Cli.Command.make("serve", {}, () =>
   Effect.gen(function* () {
@@ -1675,7 +2001,6 @@ const ask = Cli.Command.make(
 
 const app = btca.pipe(
   Cli.Command.withSubcommands([
-    hello,
     serve,
     tui,
     mcp,
@@ -1688,6 +2013,7 @@ const app = btca.pipe(
     resources,
     status,
     telemetry,
+    wipe,
   ]),
   Cli.Command.provideEffect(Telemetry, () => Telemetry.make({ cliVersion: version })),
   Cli.Command.provideEffect(Server, ({ port, url, debug }) => Server.make({ port, url, debug })),
@@ -1697,12 +2023,11 @@ const program = Effect.scoped(
   Cli.Command.run(app, {
     version,
   }),
-);
+).pipe(Effect.provide(NodeServices.layer));
 
-const main = program.pipe(Effect.provide(NodeServices.layer), Effect.orDie) as Effect.Effect<
-  never,
-  never,
-  never
->;
+const exit = await Effect.runPromiseExit(program);
 
-NodeRuntime.runMain(main);
+if (Exit.isFailure(exit)) {
+  console.error(formatTopLevelCliError(Cause.squash(exit.cause)));
+  process.exit(1);
+}
