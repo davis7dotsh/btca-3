@@ -1,35 +1,44 @@
 {
   "name": "@btca/cli",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0-alpha.0",
+  "private": false,
   "bin": {
     "btca": "./dist/bootstrap.mjs"
   },
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "vp pack && node dist/bootstrap.mjs",
     "build": "vp pack",
-    "check": "vp check"
+    "check": "vp check",
+    "prepublishOnly": "vp pack"
   },
   "dependencies": {
-    "@btca/server": "workspace:*",
     "@effect/platform-node": "4.0.0-beta.40",
-    "@tmcp/adapter-zod": "catalog:",
-    "@tmcp/transport-stdio": "catalog:",
-    "@types/react": "catalog:",
-    "clipboardy": "catalog:",
+    "@tmcp/adapter-zod": "^0.1.7",
+    "@tmcp/transport-stdio": "^0.4.2",
+    "clipboardy": "^5.3.1",
     "effect": "4.0.0-beta.40",
-    "ink": "catalog:",
-    "ink-text-input": "catalog:",
-    "jsonc-parser": "catalog:",
-    "react": "catalog:",
-    "tmcp": "catalog:",
-    "zod": "catalog:"
+    "ink": "^6.8.0",
+    "ink-text-input": "^6.0.0",
+    "jsonc-parser": "^3.3.1",
+    "react": "^19.2.4",
+    "tmcp": "^1.19.3",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "catalog:",
-    "typescript": "catalog:",
-    "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "@types/node": "^24.12.0",
+    "@types/react": "^19.2.14",
+    "typescript": "^5.9.3",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.1.14",
+    "vite-plus": "^0.1.14"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

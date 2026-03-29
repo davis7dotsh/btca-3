@@ -3,6 +3,10 @@ import { defineConfig } from "vite-plus";
 export default defineConfig({
   pack: {
     entry: ["src/bootstrap.ts"],
+    deps: {
+      alwaysBundle: ["@btca/server", "@mariozechner/pi-agent-core", "@mariozechner/pi-ai"],
+      onlyBundle: false,
+    },
     dts: {
       tsgo: true,
     },
