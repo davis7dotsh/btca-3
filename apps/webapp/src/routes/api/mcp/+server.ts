@@ -6,7 +6,7 @@ import { ConvexPrivateService } from "$lib/services/convex";
 import { ZodJsonSchemaAdapter } from "@tmcp/adapter-zod";
 import { HttpTransport } from "@tmcp/transport-http";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { createRemoteJWKSet, errors, jwtVerify, type JWTPayload } from "jose";
 import { Effect } from "effect";
 import { McpServer } from "tmcp";
 import { tool } from "tmcp/utils";
@@ -375,6 +375,19 @@ const handle: RequestHandler = async ({ request }) => {
       })) ?? new Response("Not Found", { status: 404 })
     );
   } catch (error) {
+    if (error instanceof errors.JWTExpired) {
+      console.info(
+        "MCP access token expired during verification; returning 401 so the client can refresh and retry.",
+        {
+          claim: error.claim,
+          reason: error.reason,
+          expiresAt: typeof error.payload.exp === "number" ? error.payload.exp : undefined,
+        },
+      );
+
+      return unauthorized(request);
+    }
+
     console.error("Failed to verify MCP access token", {
       error: error instanceof Error ? error.message : String(error),
     });

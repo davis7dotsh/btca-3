@@ -109,6 +109,13 @@ type CommandItem = {
   readonly action: "clear" | "copy" | "copyAll" | "resume" | "quit";
 };
 
+type SuggestionItem = {
+  readonly key: string;
+  readonly primary: string;
+  readonly secondary?: string;
+  readonly disabled?: boolean;
+};
+
 const tuiContext = globalThis.__BTCA_TUI_CONTEXT__;
 
 if (!tuiContext) {
@@ -384,6 +391,36 @@ const formatDateTime = (timestamp: number) =>
     minute: "2-digit",
     month: "short",
   });
+
+const formatThreadResources = (thread: ThreadSummary) =>
+  thread.resourceNames.join(", ") || "no resources";
+
+const formatThreadSuggestion = (thread: ThreadSummary): SuggestionItem => ({
+  key: thread.threadId,
+  primary: thread.activity?.trim() || "untitled",
+  secondary: `${formatDateTime(thread.updatedAt)} · ${formatThreadResources(thread)}`,
+});
+
+const matchesThreadQuery = (thread: ThreadSummary, query: string) => {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  const haystack = [
+    thread.activity,
+    formatThreadResources(thread),
+    thread.workspaceDir,
+    thread.provider,
+    thread.modelId,
+    thread.status,
+  ]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes(normalized);
+};
 
 const formatRunMetrics = (metrics: RunMetrics | null) => {
   if (!metrics) {
@@ -705,38 +742,12 @@ const TranscriptRow = ({ isActive = false, message }: { isActive?: boolean; mess
   return <AssistantMessageRow isActive={isActive} message={message} />;
 };
 
-const ResumeList = ({
-  selectedIndex,
-  threads,
-}: {
-  selectedIndex: number;
-  threads: readonly ThreadSummary[];
-}) => (
-  <Box flexDirection="column" marginTop={1}>
-    <Text bold color={colors.accent}>
-      {"resume thread"}
-    </Text>
-    <Text color={colors.dim}>{"↑↓ select · enter resume · esc close"}</Text>
-    {threads.length === 0 ? (
-      <Text color={colors.dim}>{"no saved threads"}</Text>
-    ) : (
-      threads.map((thread, index) => (
-        <Text key={thread.threadId} color={index === selectedIndex ? colors.accent : colors.text}>
-          {`${index === selectedIndex ? "›" : " "} ${thread.activity ?? "untitled"}  ${formatDateTime(
-            thread.updatedAt,
-          )}  ${thread.resourceNames.join(", ") || "no resources"}`}
-        </Text>
-      ))
-    )}
-  </Box>
-);
-
 const Suggestions = ({
   items,
   label,
   selectedIndex,
 }: {
-  items: readonly string[];
+  items: readonly SuggestionItem[];
   label: string;
   selectedIndex: number;
 }) => {
@@ -748,9 +759,16 @@ const Suggestions = ({
     <Box flexDirection="column">
       <Text color={colors.dim}>{label}</Text>
       {items.map((item, index) => (
-        <Text key={item} color={index === selectedIndex ? colors.accent : colors.text}>
-          {`${index === selectedIndex ? "›" : " "} ${item}`}
-        </Text>
+        <Box key={item.key} flexDirection="column">
+          <Text
+            color={
+              item.disabled ? colors.dim : index === selectedIndex ? colors.accent : colors.text
+            }
+          >
+            {`${index === selectedIndex && !item.disabled ? "›" : " "} ${item.primary}`}
+          </Text>
+          {item.secondary ? <Text color={colors.dim}>{`  ${item.secondary}`}</Text> : null}
+        </Box>
       ))}
     </Box>
   );
@@ -768,8 +786,9 @@ const App = () => {
   const [threadResources, setThreadResources] = useState<readonly string[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [cancelPending, setCancelPending] = useState(false);
-  const [resumeOpen, setResumeOpen] = useState(false);
   const [threads, setThreads] = useState<readonly ThreadSummary[]>([]);
+  const [isLoadingThreads, setIsLoadingThreads] = useState(false);
+  const [resumeLoadError, setResumeLoadError] = useState<string | null>(null);
   const [selectedThreadIndex, setSelectedThreadIndex] = useState(0);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
@@ -805,14 +824,83 @@ const App = () => {
       .map((resource) => resource.name);
   }, [currentMentionToken, resources]);
 
+  const resumeQuery = useMemo(() => {
+    const trimmed = input.trimStart();
+    if (trimmed === "/resume") {
+      return "";
+    }
+
+    if (trimmed.startsWith("/resume ")) {
+      return trimmed.slice("/resume".length).trim();
+    }
+
+    return null;
+  }, [input]);
+
+  const isResumeCommand = resumeQuery !== null;
+
+  const resumeMatches = useMemo(() => {
+    if (!isResumeCommand) {
+      return [];
+    }
+
+    return threads.filter((thread) => matchesThreadQuery(thread, resumeQuery)).slice(0, 8);
+  }, [isResumeCommand, resumeQuery, threads]);
+
   const activeSuggestions = useMemo(() => {
-    if (resumeOpen) {
-      return { items: [], label: "", selectedIndex: 0 } as const;
+    if (isResumeCommand) {
+      if (resumeLoadError) {
+        return {
+          items: [{ key: "resume-error", primary: resumeLoadError, disabled: true }],
+          label: "Resume thread",
+          selectedIndex: 0,
+        } as const;
+      }
+
+      if (isLoadingThreads && threads.length === 0) {
+        return {
+          items: [{ key: "resume-loading", primary: "Loading saved threads...", disabled: true }],
+          label: "Resume thread",
+          selectedIndex: 0,
+        } as const;
+      }
+
+      if (threads.length === 0) {
+        return {
+          items: [{ key: "resume-empty", primary: "No saved threads yet.", disabled: true }],
+          label: "Resume thread",
+          selectedIndex: 0,
+        } as const;
+      }
+
+      if (resumeMatches.length === 0) {
+        return {
+          items: [
+            {
+              key: "resume-no-match",
+              primary: "No saved threads match that search.",
+              disabled: true,
+            },
+          ],
+          label: "Resume thread",
+          selectedIndex: 0,
+        } as const;
+      }
+
+      return {
+        items: resumeMatches.map(formatThreadSuggestion),
+        label: "Resume thread",
+        selectedIndex: selectedThreadIndex,
+      } as const;
     }
 
     if (commandMatches.length > 0) {
       return {
-        items: commandMatches.map((command) => `${command.name}  ${command.description}`),
+        items: commandMatches.map((command) => ({
+          key: command.name,
+          primary: command.name,
+          secondary: command.description,
+        })),
         label: "Commands",
         selectedIndex: selectedCommandIndex,
       } as const;
@@ -820,14 +908,28 @@ const App = () => {
 
     if (mentionMatches.length > 0) {
       return {
-        items: mentionMatches.map((name) => `@${name}`),
+        items: mentionMatches.map((name) => ({
+          key: name,
+          primary: `@${name}`,
+        })),
         label: "Resources",
         selectedIndex: selectedMentionIndex,
       } as const;
     }
 
     return { items: [], label: "", selectedIndex: 0 } as const;
-  }, [commandMatches, mentionMatches, resumeOpen, selectedCommandIndex, selectedMentionIndex]);
+  }, [
+    commandMatches,
+    isLoadingThreads,
+    isResumeCommand,
+    mentionMatches,
+    resumeLoadError,
+    resumeMatches,
+    selectedCommandIndex,
+    selectedMentionIndex,
+    selectedThreadIndex,
+    threads.length,
+  ]);
 
   const transcriptItems = useMemo(
     () => messages.map((message, index) => ({ id: getMessageKey(message, index), message })),
@@ -916,8 +1018,9 @@ const App = () => {
     }
 
     if (command.action === "resume") {
-      setResumeOpen(true);
-      await refreshThreads();
+      setInput("/resume ");
+      setInputRenderKey((current) => current + 1);
+      setSelectedThreadIndex(0);
       return;
     }
 
@@ -938,13 +1041,36 @@ const App = () => {
     setProvider(response.thread.provider ?? provider);
     setModel(response.thread.modelId ?? model);
     resetTranscript(parsedThread.messages, parsedThread.lastRunMetrics);
-    setResumeOpen(false);
     setInput("");
   };
 
   const submit = async () => {
     const trimmedInput = input.trim();
-    if (!trimmedInput || isStreaming || resumeOpen) {
+    if (!trimmedInput || isStreaming) {
+      return;
+    }
+
+    if (isResumeCommand) {
+      if (isLoadingThreads) {
+        return;
+      }
+
+      const thread = resumeMatches[selectedThreadIndex] ?? resumeMatches[0];
+      if (!thread) {
+        addSystemMessage(
+          resumeLoadError ??
+            (threads.length === 0
+              ? "No saved threads yet."
+              : "No saved threads match that search."),
+        );
+        return;
+      }
+
+      try {
+        await loadThread(thread.threadId);
+      } catch (error) {
+        addSystemMessage(error instanceof Error ? error.message : "Failed to resume thread.");
+      }
       return;
     }
 
@@ -1321,31 +1447,48 @@ const App = () => {
     );
   }, [mentionMatches.length]);
 
+  useEffect(() => {
+    setSelectedThreadIndex((current) =>
+      resumeMatches.length === 0 ? 0 : Math.min(current, resumeMatches.length - 1),
+    );
+  }, [resumeMatches.length]);
+
+  useEffect(() => {
+    if (!isResumeCommand) {
+      setIsLoadingThreads(false);
+      setResumeLoadError(null);
+      return;
+    }
+
+    let canceled = false;
+    setIsLoadingThreads(true);
+    setResumeLoadError(null);
+
+    void refreshThreads()
+      .catch((error) => {
+        if (canceled) {
+          return;
+        }
+
+        setResumeLoadError(
+          error instanceof Error ? error.message : "Failed to load saved threads.",
+        );
+      })
+      .finally(() => {
+        if (!canceled) {
+          setIsLoadingThreads(false);
+        }
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, [isResumeCommand]);
+
   useInput((inputKey, key) => {
     if (key.ctrl && inputKey === "q") {
       abortControllerRef.current?.abort();
       exit();
-      return;
-    }
-
-    if (resumeOpen) {
-      if (key.escape) {
-        setResumeOpen(false);
-        return;
-      }
-
-      if (key.upArrow) {
-        setSelectedThreadIndex((current) =>
-          threads.length === 0 ? 0 : (current - 1 + threads.length) % threads.length,
-        );
-      }
-
-      if (key.downArrow) {
-        setSelectedThreadIndex((current) =>
-          threads.length === 0 ? 0 : (current + 1) % threads.length,
-        );
-      }
-
       return;
     }
 
@@ -1358,8 +1501,33 @@ const App = () => {
       return;
     }
 
+    if (isResumeCommand && key.escape) {
+      setInput("");
+      setInputRenderKey((current) => current + 1);
+      setSelectedThreadIndex(0);
+      return;
+    }
+
     if (!isStreaming && key.escape) {
       setCancelPending(false);
+      return;
+    }
+
+    if (isResumeCommand) {
+      if (key.upArrow) {
+        setSelectedThreadIndex((current) =>
+          resumeMatches.length === 0
+            ? 0
+            : (current - 1 + resumeMatches.length) % resumeMatches.length,
+        );
+      }
+
+      if (key.downArrow) {
+        setSelectedThreadIndex((current) =>
+          resumeMatches.length === 0 ? 0 : (current + 1) % resumeMatches.length,
+        );
+      }
+
       return;
     }
 
@@ -1410,18 +1578,21 @@ const App = () => {
         ) : null}
       </Box>
 
-      {resumeOpen ? <ResumeList threads={threads} selectedIndex={selectedThreadIndex} /> : null}
-
       <Box marginTop={2}>
-        <Text color={resumeOpen ? colors.dim : colors.accent}>{"❯ "}</Text>
+        <Text color={colors.accent}>{"❯ "}</Text>
         <TextInput
           key={inputRenderKey}
-          focus={!resumeOpen}
+          focus
           placeholder="@resource question... or / for commands"
-          showCursor={!resumeOpen}
+          showCursor
           value={input}
           onChange={setInput}
           onSubmit={() => {
+            if (isResumeCommand) {
+              void submit();
+              return;
+            }
+
             if (mentionMatches.length > 0) {
               const nextMention = mentionMatches[selectedMentionIndex] ?? mentionMatches[0];
               if (nextMention) {
@@ -1434,18 +1605,6 @@ const App = () => {
               const command = commandMatches[selectedCommandIndex] ?? commandMatches[0];
               if (command) {
                 void executeCommand(command);
-              }
-              return;
-            }
-
-            if (resumeOpen) {
-              const thread = threads[selectedThreadIndex];
-              if (thread) {
-                void loadThread(thread.threadId).catch((error) => {
-                  addSystemMessage(
-                    error instanceof Error ? error.message : "Failed to resume thread.",
-                  );
-                });
               }
               return;
             }
@@ -1469,9 +1628,11 @@ const App = () => {
             ? cancelPending
               ? "esc again to cancel"
               : "streaming..."
-            : lastRunMetrics
-              ? formatRunMetrics(lastRunMetrics)
-              : "@ mention · / commands · ^q quit"}
+            : isResumeCommand
+              ? "↑↓ select thread · enter resume · esc close"
+              : lastRunMetrics
+                ? formatRunMetrics(lastRunMetrics)
+                : "@ mention · / commands · ^q quit"}
         </Text>
         <Text color={colors.muted}>
           {threadResources.length > 0
