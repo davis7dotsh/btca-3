@@ -57,6 +57,8 @@ const RESOURCE_SUMMARY_SCHEMA = z.object({
 });
 
 const RESOURCE_CATALOG_URI = "btca://resources/catalog.json";
+const MCP_AUTH_CHANGED_MESSAGE =
+  "BTCA MCP auth has changed. Update your config from https://btca.dev/app/mcp/getting-started";
 
 const corsHeaders = () => ({
   "Access-Control-Allow-Origin": "*",
@@ -72,13 +74,14 @@ const unauthorized = (request: Request) => {
   return Response.json(
     {
       error: "Unauthorized",
+      message: MCP_AUTH_CHANGED_MESSAGE,
     },
     {
       status: 401,
       headers: {
         "WWW-Authenticate": [
           'Bearer error="unauthorized"',
-          'error_description="Authorization needed"',
+          `error_description="${MCP_AUTH_CHANGED_MESSAGE}"`,
           `resource_metadata="${metadataUrl}"`,
         ].join(", "),
         "Cache-Control": "no-store",
@@ -252,7 +255,7 @@ server.tool(
     const auth = server.ctx.custom;
 
     if (!auth) {
-      return tool.error("Authentication context missing.");
+      return tool.error(MCP_AUTH_CHANGED_MESSAGE);
     }
 
     try {
@@ -284,7 +287,7 @@ server.tool(
     const auth = server.ctx.custom;
 
     if (!auth) {
-      return tool.error("Authentication context missing.");
+      return tool.error(MCP_AUTH_CHANGED_MESSAGE);
     }
 
     try {
@@ -317,7 +320,7 @@ server.resource(
             uri,
             text: JSON.stringify(
               {
-                error: "Authentication context missing.",
+                error: MCP_AUTH_CHANGED_MESSAGE,
               },
               null,
               2,
