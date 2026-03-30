@@ -28,7 +28,7 @@ export const DELETE: RequestHandler = async (event) => {
         const removed = yield* convex.mutation({
           func: api.private.agentThreads.removePendingAttachment,
           args: {
-            attachmentId: attachmentId as Id<"agentThreadAttachments">,
+            attachmentId: attachmentId as Id<"v2_agentThreadAttachments">,
             userId: user.userId,
           },
         });

@@ -144,7 +144,7 @@
 	}
 
 	type MessageSegment = TextSegment | ReasoningSegment | ToolGroupSegment;
-	type AttachmentId = Id<'agentThreadAttachments'>;
+	type AttachmentId = Id<'v2_agentThreadAttachments'>;
 	type AttachmentStatus = 'uploading' | 'pending' | 'attached' | 'removing';
 
 	interface ThreadAttachment {

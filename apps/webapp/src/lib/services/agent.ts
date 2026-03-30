@@ -846,7 +846,7 @@ const createPromptThread =
               messages: storedMessages,
               attachmentIds:
                 input.attachmentIds && input.attachmentIds.length > 0
-                  ? (input.attachmentIds as Id<"agentThreadAttachments">[])
+                  ? (input.attachmentIds as Id<"v2_agentThreadAttachments">[])
                   : undefined,
             },
           });
@@ -931,7 +931,7 @@ const createPromptThread =
                 args: {
                   threadId: input.threadId,
                   userId: input.userId,
-                  attachmentIds: input.attachmentIds as Id<"agentThreadAttachments">[],
+                  attachmentIds: input.attachmentIds as Id<"v2_agentThreadAttachments">[],
                 },
               })
             : [];
@@ -1210,7 +1210,7 @@ const createPromptThread =
                         messages: storedMessages,
                         attachmentIds:
                           input.attachmentIds && input.attachmentIds.length > 0
-                            ? (input.attachmentIds as Id<"agentThreadAttachments">[])
+                            ? (input.attachmentIds as Id<"v2_agentThreadAttachments">[])
                             : undefined,
                       },
                     }),

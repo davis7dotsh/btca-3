@@ -1,0 +1,50 @@
+---
+title: 'Quickstart'
+description: 'Install btca, add a codebase, and ask your first grounded repo question'
+---
+
+## 1) Install the CLI
+
+btca requires Bun.
+
+```bash
+bun add -g btca
+```
+
+## 2) Optional: install the btca CLI skill for guided setup
+
+```bash
+btca skill
+```
+
+This runs the `skills.sh` installer (interactive) to install the skill.
+
+## 3) Initialize btca in your project
+
+From your repo root:
+
+```bash
+btca init
+```
+
+The wizard creates `btca.config.jsonc` for local usage.
+
+## 4) Add a repo
+
+```bash
+btca add -n svelte-dev https://github.com/sveltejs/svelte.dev
+```
+
+## 5) Ask your first question
+
+```bash
+btca ask -r svelte-dev -q "How do I define remote functions?"
+```
+
+## Optional: run the local server
+
+```bash
+btca serve
+```
+
+The server starts on port `8080` by default and exposes the local HTTP API.

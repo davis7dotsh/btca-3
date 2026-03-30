@@ -1,0 +1,166 @@
+---
+title: 'MCP Server'
+description: 'Connect btca to Cursor, Claude Code, Codex, and other MCP-compatible tools'
+---
+
+[Get your MCP API key](https://btca.dev/app/settings?tab=mcp)
+
+Connect btca to Cursor, Claude Code, Codex, and other MCP-compatible tools so they can query
+the right repos. There are two options:
+
+- **Cloud MCP**: Use your btca subscription to give coding tools access to btca-managed resources.
+- **Local MCP**: Run btca entirely on your machine and expose local resources to coding tools.
+
+To scaffold configs automatically, run:
+
+- `btca mcp local`
+
+For cloud MCP, use the manual config snippets below with your API key.
+
+The hosted MCP endpoint is optimized for request/response tool calls. Long-lived SSE
+notification streams are disabled in cloud deployments.
+
+## Add to `AGENTS.md`
+
+Add the following section to your project’s `AGENTS.md`:
+
+```md
+# btca MCP Usage Instructions
+
+Use btca whenever a task depends on understanding a repo, docs site, or configured resource
+more accurately than a generic model can.
+
+Use it whenever the user says "use btca", or when you need info that should come from the listed resources.
+
+## Tools
+
+The btca MCP server provides these tools:
+
+- `listResources` - List all available documentation resources
+- `ask` - Ask a question about specific resources
+
+## resources
+
+The resources available are defined by the end user in their btca dashboard. If there's a resource you need but it's not available in `listResources`, proceed without btca. When your task is done, clearly note that you'd like access to the missing resource.
+
+## Critical Workflow
+
+**Always call `listResources` first** before using `ask`. The `ask` tool requires exact resource names from the list.
+
+### Example
+
+1. Call listResources to get available resources
+2. Note the "name" field for each resource (e.g., "svelteKit", not "SvelteKit" or "svelte-kit")
+3. Call ask with:
+   - question: "How do I create a load function?"
+   - resources: ["svelteKit"]
+```
+
+## Configure your agent
+
+Each agent supports both **cloud** (HTTP) and **local** (stdio) MCP servers. Use the examples below to pick the option you want.
+
+### Cursor
+
+Cloud (HTTP) in `.cursor/mcp.json`:
+
+```json
+{
+	"mcpServers": {
+		"server-name": {
+			"url": "https://btca.dev/api/mcp",
+			"headers": {
+				"Authorization": "Bearer ak..."
+			}
+		}
+	}
+}
+```
+
+Reference: [Cursor MCP docs](https://cursor.com/docs/context/mcp#using-mcpjson)
+
+Local (stdio) in `.cursor/mcp.json`:
+
+```json
+{
+	"mcpServers": {
+		"btca-local": {
+			"command": "bunx",
+			"args": ["btca", "mcp"]
+		}
+	}
+}
+```
+
+### Codex
+
+Cloud (HTTP) in `config.toml`, and add the API key to your environment variables (for example in `.zshenv`):
+
+```toml
+[mcp_servers.btca]
+bearer_token_env_var = "BTCA_API_KEY"
+enabled = true
+url = "https://btca.dev/api/mcp"
+```
+
+Reference: [Codex MCP docs](https://developers.openai.com/codex/mcp/)
+
+Local (stdio) via CLI:
+
+```bash
+codex mcp add btca-local -- bunx btca mcp
+```
+
+### Claude Code
+
+Cloud (HTTP) in the CLI:
+
+```bash
+claude mcp add --transport http better-context https://btca.dev/api/mcp \
+ --header "Authorization: Bearer ak..."
+```
+
+Reference: [Claude Code MCP docs](https://code.claude.com/docs/en/mcp#installing-mcp-servers)
+
+Local (stdio) in the CLI:
+
+```bash
+claude mcp add --transport stdio btca-local -- bunx btca mcp
+```
+
+### OpenCode
+
+Cloud (HTTP) in `opencode.json`:
+
+```json
+{
+	"$schema": "https://opencode.ai/config.json",
+	"mcp": {
+		"better-context": {
+			"type": "remote",
+			"url": "https://btca.dev/api/mcp",
+			"enabled": true,
+			"headers": {
+				"Authorization": "Bearer ak..."
+			}
+		}
+	}
+}
+```
+
+Reference: [OpenCode MCP docs](https://opencode.ai/docs/mcp-servers/)
+
+Local (stdio) in `opencode.json`:
+
+```json
+{
+	"$schema": "https://opencode.ai/config.json",
+	"mcp": {
+		"btca-local": {
+			"type": "local",
+			"command": ["bunx", "btca", "mcp"],
+			"enabled": true
+		}
+	}
+}
+```

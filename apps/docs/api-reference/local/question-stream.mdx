@@ -1,0 +1,61 @@
+---
+title: 'Ask a question (stream)'
+openapi: '/api-reference/openapi.local.json POST /question/stream'
+---
+
+Streams server-sent events for the query lifecycle.
+
+## Events
+
+SSE format:
+
+```txt
+event: <type>
+data: <json>
+```
+
+Event types:
+
+- `meta`
+- `reasoning.delta`
+- `text.delta`
+- `tool.updated`
+- `done`
+- `error`
+
+### done
+
+The final event is `done`. It always includes `text`, `reasoning`, and `tools`, and may include optional `usage` and `metrics`:
+
+```json
+{
+	"type": "done",
+	"text": "final answer",
+	"reasoning": "full reasoning",
+	"tools": [],
+	"usage": {
+		"inputTokens": 1234,
+		"outputTokens": 456,
+		"reasoningTokens": 120,
+		"totalTokens": 1690
+	},
+	"metrics": {
+		"timing": { "totalMs": 5321, "genMs": 2710 },
+		"throughput": {
+			"outputTokensPerSecond": 168.3,
+			"totalTokensPerSecond": 623.6
+		},
+		"pricing": {
+			"source": "models.dev",
+			"modelKey": "openai/gpt-4o-mini",
+			"ratesUsdPerMTokens": { "input": 0.14, "output": 0.54 },
+			"costUsd": { "input": 0.000173, "output": 0.000246, "total": 0.000419 }
+		}
+	}
+}
+```
+
+Notes:
+
+- Pricing is best-effort and may be omitted.
+- Pricing rates are USD per 1M tokens from `https://models.dev/api.json`.

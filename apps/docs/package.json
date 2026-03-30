@@ -1,0 +1,13 @@
+{
+	"name": "@btca/docs",
+	"private": true,
+	"scripts": {
+		"dev": "mint dev",
+		"format": "prettier --write .",
+		"check": "mint validate --disable-openapi && mint openapi-check api-reference/openapi.local.json && mint openapi-check api-reference/openapi.cloud.json"
+	},
+	"dependencies": {},
+	"devDependencies": {
+		"prettier": "^3.8.1"
+	}
+}

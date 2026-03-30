@@ -1,0 +1,101 @@
+---
+title: 'Configuration'
+description: 'Local config files, defaults, and validation limits'
+---
+
+## Local config: `btca.config.jsonc`
+
+Locations:
+
+- Project: `./btca.config.jsonc`
+- Global: `~/.config/btca/btca.config.jsonc`
+
+Behavior:
+
+- JSONC is supported (comments and trailing commas).
+- Global is loaded first, project overrides conflicts.
+- If a project config exists, `dataDirectory` resolves relative to the project.
+- Resources are stored in `${dataDirectory}/resources`.
+
+Example:
+
+```jsonc
+{
+	"$schema": "https://btca.dev/btca.schema.json",
+	"provider": "opencode",
+	"model": "claude-haiku-4-5",
+	"maxSteps": 40,
+	"dataDirectory": ".btca",
+	"providerOptions": {
+		// OpenAI-compatible providers (e.g., LM Studio)
+		"openai-compat": {
+			// Base URL of your OpenAI-compatible server
+			"baseURL": "http://localhost:1234/v1",
+			// Provider name used by the AI SDK
+			"name": "lmstudio"
+		}
+	},
+	"resources": [
+		{
+			"type": "git",
+			"name": "svelte",
+			"url": "https://github.com/sveltejs/svelte.dev",
+			"branch": "main",
+			"searchPath": "apps/svelte.dev",
+			"specialNotes": "Focus on docs content"
+		},
+		{
+			"type": "npm",
+			"name": "reactNpm",
+			"package": "react",
+			"version": "latest"
+		}
+	]
+}
+```
+
+OpenAI-compatible config requirements:
+
+- `providerOptions.openai-compat.baseURL` (required) tells btca where to send requests.
+- `providerOptions.openai-compat.name` (required) is the provider identifier used by the AI SDK.
+- `model` (required) must match a model ID your server exposes.
+- The API key (if required) is stored in OpenCode auth, not in this config.
+
+Defaults if the global config is missing:
+
+- `provider`: `opencode`
+- `model`: `claude-haiku-4-5`
+- `providerTimeoutMs`: `300000`
+- `maxSteps`: `40`
+- Default resources: `svelte`, `tailwindcss`, `nextjs`
+
+If `dataDirectory` is missing and a legacy `.btca/` exists, the project config is
+migrated to use `.btca`.
+
+## Validation limits
+
+- Resource name: max 64 chars, regex `^@?[a-zA-Z0-9][a-zA-Z0-9._-]*(/[a-zA-Z0-9][a-zA-Z0-9._-]*)*$`, no `..`, no `//`, no trailing `/`
+- Branch: max 128 chars, regex `^[a-zA-Z0-9/_.-]+$`, must not start with `-`
+- Search path: max 256 chars, no `..`, no absolute paths, no newlines
+- npm package field: must be a valid npm package name (for example `react` or `@types/node`)
+- npm version/tag field: optional, must not contain spaces or `/`
+- Special notes: max 500 chars, no control characters
+- Question length: max 100,000 chars
+- Resources per request: max 20
+- Git URL: HTTPS only, no embedded credentials, no localhost/private IPs
+- GitHub URLs are normalized to the base repo.
+
+## Known gaps
+
+- One-off HTTPS git URLs (used directly in `btca ask`) are treated as temporary resources.
+  - Anonymous URLs are auto-normalized.
+  - Clones use a short hash-based key and are cleaned up automatically after the request.
+  - btca tries `main`, `master`, `trunk`, then `dev` by default.
+  - If your repo uses a different default branch, add it as a named resource instead of using a one-off URL.
+
+- One-off npm references (used directly in `btca ask`) are treated as temporary resources.
+  - Supported formats: `npm:<package>`, `npm:<package>@<version-or-tag>`, or npmjs package URLs.
+  - Package metadata/readme/page HTML are hydrated into a temporary folder and cleaned up automatically after the request.
+
+- `--global` flags exist on several commands, but the effective target is determined
+  by whether a project config exists; there is no strict global override.
