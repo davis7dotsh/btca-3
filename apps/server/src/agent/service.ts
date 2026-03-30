@@ -20,6 +20,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ServiceMap from "effect/ServiceMap";
 
+import { instrumentPiEventStream } from "@contextcompany/pi";
+
 import { AuthService } from "../auth/service.ts";
 import { Config } from "../config.ts";
 import { ResourcesService } from "../resources/service.ts";
@@ -511,7 +513,16 @@ export class AgentService extends ServiceMap.Service<AgentService, AgentServiceS
           let assistantOutputTokens = 0;
 
           try {
-            for await (const event of args.rawEvents) {
+            const instrumentedEvents = instrumentPiEventStream(args.rawEvents, {
+              sessionId: args.threadId,
+              metadata: {
+                provider: args.provider,
+                modelId: args.modelId,
+                resourceNames: args.resourceNames,
+              },
+            });
+
+            for await (const event of instrumentedEvents) {
               const eventTimestamp = getEventTimestamp(event);
 
               if (event.type === "tool_execution_start") {

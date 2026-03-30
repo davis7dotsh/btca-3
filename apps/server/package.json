@@ -25,6 +25,7 @@
     "prepublishOnly": "vp run build"
   },
   "dependencies": {
+    "@contextcompany/pi": "^1.1.1",
     "@effect/platform-node": "4.0.0-beta.40",
     "@mariozechner/pi-agent-core": "catalog:",
     "@mariozechner/pi-ai": "catalog:",
