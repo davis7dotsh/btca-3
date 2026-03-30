@@ -34,6 +34,19 @@ import { ProcessError } from "./shared/process.ts";
 import { WorkspaceError, WorkspaceService } from "./workspace/service.ts";
 
 export { Config, ConfigError } from "./config.ts";
+export {
+  BTCA_CONFIG_JSON_SCHEMA,
+  CONFIG_SCHEMA_URL,
+  DEFAULT_MAX_STEPS,
+  DEFAULT_MODEL,
+  DEFAULT_PROVIDER,
+  DEFAULT_PROVIDER_TIMEOUT_MS,
+  DEFAULT_RESOURCES,
+  type ProviderOptions,
+  type ProviderOptionsMap,
+  type ResourceDefinition,
+  type StoredConfig,
+} from "./config-schema.ts";
 
 export interface HealthResponse {
   readonly ok: true;
