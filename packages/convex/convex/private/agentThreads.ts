@@ -11,7 +11,7 @@ const storedMessageValidator = v.object({
 
 const threadStatusValidator = v.union(v.literal("idle"), v.literal("running"), v.literal("error"));
 
-const getUserMessageCount = (messages: readonly Doc<"agentThreadMessages">[]) =>
+const getUserMessageCount = (messages: readonly Doc<"v2_agentThreadMessages">[]) =>
   messages.filter((message) => message.role === "user").length;
 
 export const getThreadContext = privateQuery({
@@ -21,8 +21,8 @@ export const getThreadContext = privateQuery({
   },
   handler: async (ctx, args) => {
     const thread = await ctx.db
-      .query("agentThreads")
-      .withIndex("by_thread_id", (query: IndexRangeBuilder<Doc<"agentThreads">, ["threadId"]>) =>
+      .query("v2_agentThreads")
+      .withIndex("by_thread_id", (query: IndexRangeBuilder<Doc<"v2_agentThreads">, ["threadId"]>) =>
         query.eq("threadId", args.threadId),
       )
       .unique();
@@ -36,18 +36,18 @@ export const getThreadContext = privateQuery({
     }
 
     const messages = await ctx.db
-      .query("agentThreadMessages")
+      .query("v2_agentThreadMessages")
       .withIndex(
         "by_thread_sequence",
-        (query: IndexRangeBuilder<Doc<"agentThreadMessages">, ["threadId", "sequence"]>) =>
+        (query: IndexRangeBuilder<Doc<"v2_agentThreadMessages">, ["threadId", "sequence"]>) =>
           query.eq("threadId", args.threadId),
       )
       .collect();
     const attachments = await ctx.db
-      .query("agentThreadAttachments")
+      .query("v2_agentThreadAttachments")
       .withIndex(
         "by_thread_created_at",
-        (query: IndexRangeBuilder<Doc<"agentThreadAttachments">, ["threadId", "createdAt"]>) =>
+        (query: IndexRangeBuilder<Doc<"v2_agentThreadAttachments">, ["threadId", "createdAt"]>) =>
           query.eq("threadId", args.threadId),
       )
       .collect();
@@ -69,7 +69,7 @@ export const getThreadContext = privateQuery({
         messageCount: thread.messageCount,
         userMessageCount: getUserMessageCount(messages),
       },
-      messages: messages.map((message: Doc<"agentThreadMessages">) => ({
+      messages: messages.map((message: Doc<"v2_agentThreadMessages">) => ({
         sequence: message.sequence,
         role: message.role,
         timestamp: message.messageTimestamp ?? null,
@@ -77,10 +77,10 @@ export const getThreadContext = privateQuery({
       })),
       attachments: attachments
         .sort(
-          (a: Doc<"agentThreadAttachments">, b: Doc<"agentThreadAttachments">) =>
+          (a: Doc<"v2_agentThreadAttachments">, b: Doc<"v2_agentThreadAttachments">) =>
             a.createdAt - b.createdAt,
         )
-        .map((attachment: Doc<"agentThreadAttachments">) => ({
+        .map((attachment: Doc<"v2_agentThreadAttachments">) => ({
           id: attachment._id,
           threadId: attachment.threadId,
           messageSequence: attachment.messageSequence ?? null,
@@ -101,7 +101,7 @@ export const resolvePromptAttachments = privateQuery({
   args: {
     threadId: v.string(),
     userId: v.string(),
-    attachmentIds: v.array(v.id("agentThreadAttachments")),
+    attachmentIds: v.array(v.id("v2_agentThreadAttachments")),
   },
   handler: async (ctx, args) => {
     const resolved = [];
@@ -151,12 +151,12 @@ export const appendThreadMessages = privateMutation({
     completedAt: v.number(),
     promptPreview: v.string(),
     messages: v.array(storedMessageValidator),
-    attachmentIds: v.optional(v.array(v.id("agentThreadAttachments"))),
+    attachmentIds: v.optional(v.array(v.id("v2_agentThreadAttachments"))),
   },
   handler: async (ctx, args) => {
     const thread = await ctx.db
-      .query("agentThreads")
-      .withIndex("by_thread_id", (query: IndexRangeBuilder<Doc<"agentThreads">, ["threadId"]>) =>
+      .query("v2_agentThreads")
+      .withIndex("by_thread_id", (query: IndexRangeBuilder<Doc<"v2_agentThreads">, ["threadId"]>) =>
         query.eq("threadId", args.threadId),
       )
       .unique();
@@ -166,9 +166,9 @@ export const appendThreadMessages = privateMutation({
     }
 
     const createdAt = thread?.createdAt ?? args.startedAt;
-    const threadRef: Id<"agentThreads"> =
+    const threadRef: Id<"v2_agentThreads"> =
       thread?._id ??
-      (await ctx.db.insert("agentThreads", {
+      (await ctx.db.insert("v2_agentThreads", {
         threadId: args.threadId,
         userId: args.userId,
         title: undefined,
@@ -187,7 +187,7 @@ export const appendThreadMessages = privateMutation({
     const baseSequence = thread?.messageCount ?? 0;
 
     for (const [index, message] of args.messages.entries()) {
-      await ctx.db.insert("agentThreadMessages", {
+      await ctx.db.insert("v2_agentThreadMessages", {
         threadId: args.threadId,
         threadRef,
         sequence: baseSequence + index,
@@ -258,8 +258,8 @@ export const createPendingAttachment = privateMutation({
   },
   handler: async (ctx, args) => {
     const thread = await ctx.db
-      .query("agentThreads")
-      .withIndex("by_thread_id", (query: IndexRangeBuilder<Doc<"agentThreads">, ["threadId"]>) =>
+      .query("v2_agentThreads")
+      .withIndex("by_thread_id", (query: IndexRangeBuilder<Doc<"v2_agentThreads">, ["threadId"]>) =>
         query.eq("threadId", args.threadId),
       )
       .unique();
@@ -273,7 +273,7 @@ export const createPendingAttachment = privateMutation({
     }
 
     const now = Date.now();
-    const attachmentId = await ctx.db.insert("agentThreadAttachments", {
+    const attachmentId = await ctx.db.insert("v2_agentThreadAttachments", {
       threadId: args.threadId,
       threadRef: thread._id,
       userId: args.userId,
@@ -306,7 +306,7 @@ export const createPendingAttachment = privateMutation({
 
 export const removePendingAttachment = privateMutation({
   args: {
-    attachmentId: v.id("agentThreadAttachments"),
+    attachmentId: v.id("v2_agentThreadAttachments"),
     userId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -341,8 +341,8 @@ export const setThreadTitle = privateMutation({
   },
   handler: async (ctx, args) => {
     const thread = await ctx.db
-      .query("agentThreads")
-      .withIndex("by_thread_id", (query: IndexRangeBuilder<Doc<"agentThreads">, ["threadId"]>) =>
+      .query("v2_agentThreads")
+      .withIndex("by_thread_id", (query: IndexRangeBuilder<Doc<"v2_agentThreads">, ["threadId"]>) =>
         query.eq("threadId", args.threadId),
       )
       .unique();
@@ -380,8 +380,8 @@ export const setThreadState = privateMutation({
   },
   handler: async (ctx, args) => {
     const thread = await ctx.db
-      .query("agentThreads")
-      .withIndex("by_thread_id", (query: IndexRangeBuilder<Doc<"agentThreads">, ["threadId"]>) =>
+      .query("v2_agentThreads")
+      .withIndex("by_thread_id", (query: IndexRangeBuilder<Doc<"v2_agentThreads">, ["threadId"]>) =>
         query.eq("threadId", args.threadId),
       )
       .unique();
@@ -391,7 +391,7 @@ export const setThreadState = privateMutation({
     }
 
     if (thread === null) {
-      await ctx.db.insert("agentThreads", {
+      await ctx.db.insert("v2_agentThreads", {
         threadId: args.threadId,
         userId: args.userId,
         title: undefined,

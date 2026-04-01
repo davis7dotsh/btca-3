@@ -38,14 +38,14 @@ export const list = authedQuery({
   handler: async (ctx) => {
     const userId = getUserId(ctx.identity);
     const threads = await ctx.db
-      .query("agentThreads")
+      .query("v2_agentThreads")
       .withIndex("by_user_id", (query) => query.eq("userId", userId))
       .collect();
 
     const threadsWithCounts = await Promise.all(
       threads.map(async (thread) => {
         const messages = await ctx.db
-          .query("agentThreadMessages")
+          .query("v2_agentThreadMessages")
           .withIndex("by_thread_sequence", (query) => query.eq("threadId", thread.threadId))
           .collect();
 
@@ -65,14 +65,14 @@ export const listMcp = authedQuery({
   handler: async (ctx) => {
     const userId = getUserId(ctx.identity);
     const threads = await ctx.db
-      .query("agentThreads")
+      .query("v2_agentThreads")
       .withIndex("by_user_id", (query) => query.eq("userId", userId))
       .collect();
 
     const threadsWithCounts = await Promise.all(
       threads.map(async (thread) => {
         const messages = await ctx.db
-          .query("agentThreadMessages")
+          .query("v2_agentThreadMessages")
           .withIndex("by_thread_sequence", (query) => query.eq("threadId", thread.threadId))
           .collect();
 
@@ -97,7 +97,7 @@ export const get = authedQuery({
   handler: async (ctx, args) => {
     const userId = getUserId(ctx.identity);
     const thread = await ctx.db
-      .query("agentThreads")
+      .query("v2_agentThreads")
       .withIndex("by_thread_id", (query) => query.eq("threadId", args.threadId))
       .unique();
 
@@ -110,11 +110,11 @@ export const get = authedQuery({
     }
 
     const messages = await ctx.db
-      .query("agentThreadMessages")
+      .query("v2_agentThreadMessages")
       .withIndex("by_thread_sequence", (query) => query.eq("threadId", args.threadId))
       .collect();
     const attachments = await ctx.db
-      .query("agentThreadAttachments")
+      .query("v2_agentThreadAttachments")
       .withIndex("by_thread_created_at", (query) => query.eq("threadId", args.threadId))
       .collect();
 
@@ -153,7 +153,7 @@ export const getDefaultModel = authedQuery({
   handler: async (ctx) => {
     const userId = getUserId(ctx.identity);
     const preferences = await ctx.db
-      .query("agentUserPreferences")
+      .query("v2_agentUserPreferences")
       .withIndex("by_user_id", (query) => query.eq("userId", userId))
       .unique();
 
@@ -171,12 +171,12 @@ export const setDefaultModel = authedMutation({
     const userId = getUserId(ctx.identity);
     const now = Date.now();
     const existing = await ctx.db
-      .query("agentUserPreferences")
+      .query("v2_agentUserPreferences")
       .withIndex("by_user_id", (query) => query.eq("userId", userId))
       .unique();
 
     if (existing === null) {
-      await ctx.db.insert("agentUserPreferences", {
+      await ctx.db.insert("v2_agentUserPreferences", {
         userId,
         defaultModelId: args.modelId,
         createdAt: now,
@@ -204,7 +204,7 @@ export const setThreadModelSelection = authedMutation({
     const userId = getUserId(ctx.identity);
     const now = Date.now();
     const thread = await ctx.db
-      .query("agentThreads")
+      .query("v2_agentThreads")
       .withIndex("by_thread_id", (query) => query.eq("threadId", args.threadId))
       .unique();
 
@@ -222,12 +222,12 @@ export const setThreadModelSelection = authedMutation({
     });
 
     const existingPreferences = await ctx.db
-      .query("agentUserPreferences")
+      .query("v2_agentUserPreferences")
       .withIndex("by_user_id", (query) => query.eq("userId", userId))
       .unique();
 
     if (existingPreferences === null) {
-      await ctx.db.insert("agentUserPreferences", {
+      await ctx.db.insert("v2_agentUserPreferences", {
         userId,
         defaultModelId: args.modelId,
         createdAt: now,
@@ -255,7 +255,7 @@ export const deleteThread = authedMutation({
   handler: async (ctx, args) => {
     const userId = getUserId(ctx.identity);
     const thread = await ctx.db
-      .query("agentThreads")
+      .query("v2_agentThreads")
       .withIndex("by_thread_id", (query) => query.eq("threadId", args.threadId))
       .unique();
 
@@ -268,11 +268,11 @@ export const deleteThread = authedMutation({
     }
 
     const messages = await ctx.db
-      .query("agentThreadMessages")
+      .query("v2_agentThreadMessages")
       .withIndex("by_thread_sequence", (query) => query.eq("threadId", args.threadId))
       .collect();
     const attachments = await ctx.db
-      .query("agentThreadAttachments")
+      .query("v2_agentThreadAttachments")
       .withIndex("by_thread_created_at", (query) => query.eq("threadId", args.threadId))
       .collect();
 
@@ -300,7 +300,7 @@ export const rewindThread = authedMutation({
 
     const userId = getUserId(ctx.identity);
     const thread = await ctx.db
-      .query("agentThreads")
+      .query("v2_agentThreads")
       .withIndex("by_thread_id", (query) => query.eq("threadId", args.threadId))
       .unique();
 
@@ -314,7 +314,7 @@ export const rewindThread = authedMutation({
 
     const messages = (
       await ctx.db
-        .query("agentThreadMessages")
+        .query("v2_agentThreadMessages")
         .withIndex("by_thread_sequence", (query) => query.eq("threadId", args.threadId))
         .collect()
     ).sort((left, right) => left.sequence - right.sequence);
@@ -339,7 +339,7 @@ export const rewindThread = authedMutation({
       }
     }
     const attachments = await ctx.db
-      .query("agentThreadAttachments")
+      .query("v2_agentThreadAttachments")
       .withIndex("by_thread_created_at", (query) => query.eq("threadId", args.threadId))
       .collect();
 
@@ -378,7 +378,7 @@ export const rewindThread = authedMutation({
 
 export const removePendingAttachment = authedMutation({
   args: {
-    attachmentId: v.id("agentThreadAttachments"),
+    attachmentId: v.id("v2_agentThreadAttachments"),
   },
   handler: async (ctx, args) => {
     const userId = getUserId(ctx.identity);
@@ -414,7 +414,7 @@ export const create = authedMutation({
   handler: async (ctx, args) => {
     const userId = getUserId(ctx.identity);
     const existing = await ctx.db
-      .query("agentThreads")
+      .query("v2_agentThreads")
       .withIndex("by_thread_id", (query) => query.eq("threadId", args.threadId))
       .unique();
 
@@ -430,7 +430,7 @@ export const create = authedMutation({
 
     const now = Date.now();
 
-    await ctx.db.insert("agentThreads", {
+    await ctx.db.insert("v2_agentThreads", {
       threadId: args.threadId,
       userId,
       title: undefined,

@@ -6,62 +6,29 @@ import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as ServiceMap from "effect/ServiceMap";
 import { parse } from "jsonc-parser";
+import {
+  CONFIG_SCHEMA_URL,
+  DEFAULT_MAX_STEPS,
+  DEFAULT_MODEL,
+  DEFAULT_PROVIDER,
+  DEFAULT_PROVIDER_TIMEOUT_MS,
+  DEFAULT_RESOURCES,
+  type ProviderOptions,
+  type ProviderOptionsMap,
+  type ResourceDefinition,
+  type StoredConfig,
+} from "./config-schema.ts";
+export type {
+  ProviderOptions,
+  ProviderOptionsMap,
+  ResourceDefinition,
+  StoredConfig,
+} from "./config-schema.ts";
 
 export const GLOBAL_CONFIG_DIR = "~/.config/btca";
 export const GLOBAL_CONFIG_FILENAME = "btca.config.jsonc";
 export const PROJECT_CONFIG_FILENAME = "btca.config.jsonc";
 export const GLOBAL_DATA_DIR = "~/.local/share/btca";
-export const CONFIG_SCHEMA_URL = "https://btca.dev/btca.schema.json";
-
-export const DEFAULT_MODEL = "gpt-5.4-mini";
-export const DEFAULT_PROVIDER = "openai";
-export const DEFAULT_PROVIDER_TIMEOUT_MS = 300_000;
-export const DEFAULT_MAX_STEPS = 40;
-
-type ProviderOptions = {
-  readonly baseURL?: string;
-  readonly name?: string;
-};
-
-type ProviderOptionsMap = Record<string, ProviderOptions>;
-
-type GitResource = {
-  readonly type: "git";
-  readonly name: string;
-  readonly url: string;
-  readonly branch?: string;
-  readonly searchPath?: string;
-  readonly searchPaths?: readonly string[];
-  readonly specialNotes?: string;
-};
-
-type LocalResource = {
-  readonly type: "local";
-  readonly name: string;
-  readonly path: string;
-  readonly specialNotes?: string;
-};
-
-type NpmResource = {
-  readonly type: "npm";
-  readonly name: string;
-  readonly package: string;
-  readonly version?: string;
-  readonly specialNotes?: string;
-};
-
-export type ResourceDefinition = GitResource | LocalResource | NpmResource;
-
-type StoredConfig = {
-  readonly $schema?: string;
-  readonly dataDirectory?: string;
-  readonly providerTimeoutMs?: number;
-  readonly maxSteps?: number;
-  readonly resources?: readonly ResourceDefinition[];
-  readonly model?: string;
-  readonly provider?: string;
-  readonly providerOptions?: ProviderOptionsMap;
-};
 
 type ConfigScope = "default" | "global" | "local";
 
@@ -111,36 +78,6 @@ export class ConfigError extends Data.TaggedError("ConfigError")<{
 }> {}
 
 export class Config extends ServiceMap.Service<Config, ConfigService>()("Config") {}
-
-export const DEFAULT_RESOURCES: readonly ResourceDefinition[] = [
-  {
-    name: "svelte",
-    specialNotes:
-      "This is the svelte docs website repo, not the actual svelte repo. Focus on the content directory, it has all the markdown files for the docs.",
-    type: "git",
-    url: "https://github.com/sveltejs/svelte.dev",
-    branch: "main",
-    searchPath: "apps/svelte.dev",
-  },
-  {
-    name: "tailwindcss",
-    specialNotes:
-      "This is the tailwindcss docs website repo, not the actual tailwindcss repo. Use the docs to answer questions about tailwindcss.",
-    type: "git",
-    url: "https://github.com/tailwindlabs/tailwindcss.com",
-    searchPath: "src/docs",
-    branch: "main",
-  },
-  {
-    type: "git",
-    name: "nextjs",
-    url: "https://github.com/vercel/next.js",
-    branch: "canary",
-    searchPath: "docs",
-    specialNotes:
-      "These are the docs for the next.js framework, not the actual next.js repo. Use the docs to answer questions about next.js.",
-  },
-];
 
 const DEFAULT_CONFIG: StoredConfig = {
   $schema: CONFIG_SCHEMA_URL,

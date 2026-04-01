@@ -42,6 +42,9 @@ lint: vp lint apps/webapp
 fmt: vp fmt apps/webapp --write
 fmt-check: vp fmt apps/webapp --check
 
+@btca/docs
+check: vp run @btca/docs#check
+
 @btca/autumn
 check: vp run @btca/autumn#check
 lint: vp lint packages/autumn

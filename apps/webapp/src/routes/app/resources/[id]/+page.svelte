@@ -44,7 +44,7 @@
 	const authContext = getAuthContext();
 	const convex = browser ? useConvexClient() : null;
 
-	const resourceId = $derived(page.params.id as Id<'resources'> | undefined);
+	const resourceId = $derived(page.params.id as Id<'v2_resources'> | undefined);
 
 	let syncedResourceId = $state<string | null>(null);
 	let resourceName = $state('');
@@ -205,7 +205,7 @@
 
 		try {
 			await convex.mutation(api.authed.resources.updateItem, {
-				itemId: itemId as Id<'resourceItems'>,
+				itemId: itemId as Id<'v2_resourceItems'>,
 				name: draft.name,
 				description: draft.description.trim() || undefined,
 				url: draft.url
@@ -228,7 +228,7 @@
 
 		try {
 			await convex.mutation(api.authed.resources.removeItem, {
-				itemId: itemId as Id<'resourceItems'>
+				itemId: itemId as Id<'v2_resourceItems'>
 			});
 
 			if (editingItemId === itemId) {
@@ -251,7 +251,7 @@
 
 		try {
 			await convex.mutation(api.authed.resources.refreshItemIcon, {
-				itemId: itemId as Id<'resourceItems'>
+				itemId: itemId as Id<'v2_resourceItems'>
 			});
 		} catch (error) {
 			itemError = getHumanErrorMessage(error, 'Failed to refresh the item icon.');
@@ -282,7 +282,7 @@
 		try {
 			await convex.mutation(api.authed.resources.reorderItems, {
 				resourceId,
-				itemIds: reorderedItems.map((item) => item.id as Id<'resourceItems'>)
+				itemIds: reorderedItems.map((item) => item.id as Id<'v2_resourceItems'>)
 			});
 		} catch (error) {
 			itemError = getHumanErrorMessage(error, 'Failed to reorder the resource items.');

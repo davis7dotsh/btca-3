@@ -22,7 +22,7 @@ const createCurator = (userId: string) => ({
 
 const getOwnedResource = async (
   ctx: AuthedQueryCtx | AuthedMutationCtx,
-  resourceId: Id<"resources">,
+  resourceId: Id<"v2_resources">,
   userId: string,
 ) => {
   const resource = await ctx.db.get(resourceId);
@@ -40,7 +40,7 @@ const getOwnedResource = async (
 
 const getOwnedResourceItem = async (
   ctx: AuthedQueryCtx | AuthedMutationCtx,
-  itemId: Id<"resourceItems">,
+  itemId: Id<"v2_resourceItems">,
   userId: string,
 ) => {
   const item = await ctx.db.get(itemId);
@@ -63,10 +63,10 @@ const ensureUniqueSlug = async ({
   ctx: AuthedQueryCtx | AuthedMutationCtx;
   userId: string;
   name: string;
-  resourceId?: Id<"resources">;
+  resourceId?: Id<"v2_resources">;
 }) => {
   const existing = await ctx.db
-    .query("resources")
+    .query("v2_resources")
     .withIndex("by_user_id_and_name", (query) => query.eq("userId", userId).eq("name", name))
     .unique();
 
@@ -119,7 +119,7 @@ const createResourceRecord = async ({
 }) => {
   const now = Date.now();
   const createdBy = createCurator(userId);
-  const resourceId = await ctx.db.insert("resources", {
+  const resourceId = await ctx.db.insert("v2_resources", {
     userId,
     name,
     createdAt: now,
@@ -140,14 +140,14 @@ export const list = authedQuery({
   handler: async (ctx) => {
     const userId = getUserId(ctx.identity);
     const resources = await ctx.db
-      .query("resources")
+      .query("v2_resources")
       .withIndex("by_user_id", (query) => query.eq("userId", userId))
       .collect();
 
     const resourcesWithCounts = await Promise.all(
       resources.map(async (resource) => {
         const items = await ctx.db
-          .query("resourceItems")
+          .query("v2_resourceItems")
           .withIndex("by_resource_sort_order", (query) => query.eq("resourceId", resource._id))
           .collect();
 
@@ -167,14 +167,14 @@ export const list = authedQuery({
 
 export const get = authedQuery({
   args: {
-    resourceId: v.id("resources"),
+    resourceId: v.id("v2_resources"),
   },
   handler: async (ctx, args) => {
     const userId = getUserId(ctx.identity);
     const resource = await getOwnedResource(ctx, args.resourceId, userId);
     const items = (
       await ctx.db
-        .query("resourceItems")
+        .query("v2_resourceItems")
         .withIndex("by_resource_sort_order", (query) => query.eq("resourceId", resource._id))
         .collect()
     ).sort((left, right) => left.sortOrder - right.sortOrder);
@@ -244,7 +244,7 @@ export const createWithItems = authedMutation({
     });
 
     for (const [index, item] of normalizedItems.entries()) {
-      await ctx.db.insert("resourceItems", {
+      await ctx.db.insert("v2_resourceItems", {
         resourceId,
         sortOrder: index,
         createdAt: now,
@@ -263,7 +263,7 @@ export const createWithItems = authedMutation({
 
 export const update = authedMutation({
   args: {
-    resourceId: v.id("resources"),
+    resourceId: v.id("v2_resources"),
     name: v.string(),
   },
   handler: async (ctx, args) => {
@@ -286,13 +286,13 @@ export const update = authedMutation({
 
 export const remove = authedMutation({
   args: {
-    resourceId: v.id("resources"),
+    resourceId: v.id("v2_resources"),
   },
   handler: async (ctx, args) => {
     const userId = getUserId(ctx.identity);
     const resource = await getOwnedResource(ctx, args.resourceId, userId);
     const items = await ctx.db
-      .query("resourceItems")
+      .query("v2_resourceItems")
       .withIndex("by_resource_sort_order", (query) => query.eq("resourceId", resource._id))
       .collect();
 
@@ -306,20 +306,20 @@ export const remove = authedMutation({
 
 export const createItem = authedMutation({
   args: {
-    resourceId: v.id("resources"),
+    resourceId: v.id("v2_resources"),
     ...itemArgs,
   },
   handler: async (ctx, args) => {
     const userId = getUserId(ctx.identity);
     const resource = await getOwnedResource(ctx, args.resourceId, userId);
     const existingItems = await ctx.db
-      .query("resourceItems")
+      .query("v2_resourceItems")
       .withIndex("by_resource_sort_order", (query) => query.eq("resourceId", resource._id))
       .collect();
     const itemFields = await buildResourceItemFields({ userId, ...args });
     const now = Date.now();
     const createdBy = createCurator(userId);
-    const itemId = await ctx.db.insert("resourceItems", {
+    const itemId = await ctx.db.insert("v2_resourceItems", {
       resourceId: resource._id,
       sortOrder: existingItems.length,
       createdAt: now,
@@ -342,7 +342,7 @@ export const createItem = authedMutation({
 
 export const updateItem = authedMutation({
   args: {
-    itemId: v.id("resourceItems"),
+    itemId: v.id("v2_resourceItems"),
     ...itemArgs,
   },
   handler: async (ctx, args) => {
@@ -371,14 +371,14 @@ export const updateItem = authedMutation({
 
 export const removeItem = authedMutation({
   args: {
-    itemId: v.id("resourceItems"),
+    itemId: v.id("v2_resourceItems"),
   },
   handler: async (ctx, args) => {
     const userId = getUserId(ctx.identity);
     const { item, resource } = await getOwnedResourceItem(ctx, args.itemId, userId);
     const siblingItems = (
       await ctx.db
-        .query("resourceItems")
+        .query("v2_resourceItems")
         .withIndex("by_resource_sort_order", (query) => query.eq("resourceId", resource._id))
         .collect()
     ).sort((left, right) => left.sortOrder - right.sortOrder);
@@ -404,7 +404,7 @@ export const removeItem = authedMutation({
 
 export const refreshItemIcon = authedMutation({
   args: {
-    itemId: v.id("resourceItems"),
+    itemId: v.id("v2_resourceItems"),
   },
   handler: async (ctx, args) => {
     const userId = getUserId(ctx.identity);
@@ -433,15 +433,15 @@ export const refreshItemIcon = authedMutation({
 
 export const reorderItems = authedMutation({
   args: {
-    resourceId: v.id("resources"),
-    itemIds: v.array(v.id("resourceItems")),
+    resourceId: v.id("v2_resources"),
+    itemIds: v.array(v.id("v2_resourceItems")),
   },
   handler: async (ctx, args) => {
     const userId = getUserId(ctx.identity);
     const resource = await getOwnedResource(ctx, args.resourceId, userId);
     const existingItems = (
       await ctx.db
-        .query("resourceItems")
+        .query("v2_resourceItems")
         .withIndex("by_resource_sort_order", (query) => query.eq("resourceId", resource._id))
         .collect()
     ).sort((left, right) => left.sortOrder - right.sortOrder);

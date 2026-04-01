@@ -144,7 +144,7 @@
 	}
 
 	type MessageSegment = TextSegment | ReasoningSegment | ToolGroupSegment;
-	type AttachmentId = Id<'agentThreadAttachments'>;
+	type AttachmentId = Id<'v2_agentThreadAttachments'>;
 	type AttachmentStatus = 'uploading' | 'pending' | 'attached' | 'removing';
 
 	interface ThreadAttachment {
@@ -1071,6 +1071,7 @@
 	let hasLoggedResourceLoadStart = false;
 	let pendingDefaultModelId = $state<AgentModelId | null>(null);
 	let pendingThreadModelIds = $state<Record<string, AgentModelId>>({});
+	let pendingInitialBottomScrollThreadId = $state<string | null>(page.params.id ?? null);
 
 	const threadQuery: QueryState<
 		| {
@@ -1304,6 +1305,7 @@
 
 		resetTransientConversationState({ clearDraft: false });
 		threadId = routeThreadId;
+		pendingInitialBottomScrollThreadId = routeThreadId;
 		restoreThreadMessages(routeThreadId);
 	});
 
@@ -1440,6 +1442,42 @@
 		}
 
 		clearRunResumeState(threadId);
+	});
+
+	$effect(() => {
+		if (
+			!scrollContainer ||
+			!threadId ||
+			pendingInitialBottomScrollThreadId !== threadId ||
+			isStreaming
+		) {
+			return;
+		}
+
+		if (messages.length > 0) {
+			void tick().then(() => {
+				if (
+					!scrollContainer ||
+					!threadId ||
+					pendingInitialBottomScrollThreadId !== threadId ||
+					messages.length === 0
+				) {
+					return;
+				}
+
+				scrollToBottom('auto');
+				pendingInitialBottomScrollThreadId = null;
+			});
+			return;
+		}
+
+		if (
+			!threadQuery.isLoading &&
+			resolvedThreadData?.thread.threadId === threadId &&
+			resolvedThreadData.thread.messageCount === 0
+		) {
+			pendingInitialBottomScrollThreadId = null;
+		}
 	});
 
 	let upScrollCursor = $state<number | null>(null);

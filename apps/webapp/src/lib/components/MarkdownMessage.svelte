@@ -11,9 +11,14 @@
 		content: string;
 	}
 
+	type WindowWithCopyCode = Window & {
+		copyCode?: (id: string) => Promise<void>;
+	};
+
 	let { content }: Props = $props();
 
 	const createCodeId = () => Math.random().toString(36).slice(2, 10);
+	const copyResetTimeouts = new Map<string, number>();
 
 	const escapeHtml = (value: string) =>
 		value
@@ -60,6 +65,28 @@
 		} catch {
 			return null;
 		}
+	};
+
+	const getCodeCopyButton = (id: string) =>
+		document.querySelector<HTMLButtonElement>(`[data-code-copy-button="${id}"]`);
+
+	const setCodeCopyLabel = (id: string, label: string) => {
+		getCodeCopyButton(id)?.replaceChildren(label);
+	};
+
+	const queueCodeCopyLabelReset = (id: string) => {
+		const existingTimeout = copyResetTimeouts.get(id);
+
+		if (existingTimeout !== undefined) {
+			window.clearTimeout(existingTimeout);
+		}
+
+		const timeout = window.setTimeout(() => {
+			setCodeCopyLabel(id, 'Copy');
+			copyResetTimeouts.delete(id);
+		}, 1000);
+
+		copyResetTimeouts.set(id, timeout);
 	};
 
 	const renderMarkdown = async (source: string) => {
@@ -126,7 +153,12 @@
 				<div class="code-block-wrapper">
 					<div class="code-block-header">
 						<span class="code-lang">${escapeHtml(token.lang ?? 'text')}</span>
-						<button class="copy-btn" type="button" onclick="window.copyCode?.('${codeId}')">
+						<button
+							class="copy-btn"
+							type="button"
+							data-code-copy-button="${codeId}"
+							onclick="window.copyCode?.('${codeId}')"
+						>
 							Copy
 						</button>
 					</div>
@@ -184,10 +216,6 @@
 	});
 
 	if (typeof window !== 'undefined') {
-		type WindowWithCopyCode = Window & {
-			copyCode?: (id: string) => Promise<void>;
-		};
-
 		(window as WindowWithCopyCode).copyCode = async (id) => {
 			const element = document.getElementById(`code-raw-${id}`);
 
@@ -195,7 +223,13 @@
 				return;
 			}
 
-			await navigator.clipboard.writeText(element.textContent ?? '');
+			try {
+				await navigator.clipboard.writeText(element.textContent ?? '');
+				setCodeCopyLabel(id, 'Copied');
+				queueCodeCopyLabelReset(id);
+			} catch (error) {
+				console.error('Failed to copy code block', error);
+			}
 		};
 	}
 </script>

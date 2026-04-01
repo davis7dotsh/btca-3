@@ -16,6 +16,7 @@
     "@axiomhq/js": "catalog:",
     "@btca/autumn": "workspace:*",
     "@btca/convex": "workspace:*",
+    "@btca/server": "workspace:*",
     "@effect/platform-node": "^4.0.0-beta.36",
     "@lucide/svelte": "catalog:",
     "@mariozechner/pi-agent-core": "^0.62.0",

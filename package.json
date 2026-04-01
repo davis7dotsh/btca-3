@@ -6,6 +6,7 @@
   "scripts": {
     "check": "vp fmt && vp lint && vp run check -r",
     "dev:web": "concurrently --names convex,webapp --prefix-colors blue,green --kill-others-on-fail \"vp run @btca/convex#dev\" \"vp run @btca/webapp#dev\"",
+    "dev:docs": "vp run @btca/docs#dev",
     "dev:convex": "vp run @btca/convex#dev",
     "dev:cli": "vp run @btca/cli#dev",
     "dev:server": "vp run @btca/server#dev"

@@ -24,10 +24,10 @@ export const getTaggedResources = privateQuery({
 
     for (const name of normalizedNames) {
       const resource = await ctx.db
-        .query("resources")
+        .query("v2_resources")
         .withIndex(
           "by_user_id_and_name",
-          (query: IndexRangeBuilder<Doc<"resources">, ["userId", "name"]>) =>
+          (query: IndexRangeBuilder<Doc<"v2_resources">, ["userId", "name"]>) =>
             query.eq("userId", args.userId).eq("name", name),
         )
         .unique();
@@ -38,22 +38,22 @@ export const getTaggedResources = privateQuery({
 
       const items = (
         await ctx.db
-          .query("resourceItems")
+          .query("v2_resourceItems")
           .withIndex(
             "by_resource_sort_order",
-            (query: IndexRangeBuilder<Doc<"resourceItems">, ["resourceId", "sortOrder"]>) =>
+            (query: IndexRangeBuilder<Doc<"v2_resourceItems">, ["resourceId", "sortOrder"]>) =>
               query.eq("resourceId", resource._id),
           )
           .collect()
       ).sort(
-        (left: Doc<"resourceItems">, right: Doc<"resourceItems">) =>
+        (left: Doc<"v2_resourceItems">, right: Doc<"v2_resourceItems">) =>
           left.sortOrder - right.sortOrder,
       );
 
       resources.push({
         id: resource._id,
         name: resource.name,
-        items: items.map((item: Doc<"resourceItems">) => ({
+        items: items.map((item: Doc<"v2_resourceItems">) => ({
           id: item._id,
           name: item.name,
           description: item.description ?? null,
@@ -74,25 +74,25 @@ export const listForMcp = privateQuery({
   handler: async (ctx, args) => {
     const includeItems = args.includeItems ?? false;
     const resources = await ctx.db
-      .query("resources")
-      .withIndex("by_user_id", (query: IndexRangeBuilder<Doc<"resources">, ["userId"]>) =>
+      .query("v2_resources")
+      .withIndex("by_user_id", (query: IndexRangeBuilder<Doc<"v2_resources">, ["userId"]>) =>
         query.eq("userId", args.userId),
       )
       .collect();
 
     const resourcesWithItems = await Promise.all(
-      resources.map(async (resource: Doc<"resources">) => {
+      resources.map(async (resource: Doc<"v2_resources">) => {
         const items = (
           await ctx.db
-            .query("resourceItems")
+            .query("v2_resourceItems")
             .withIndex(
               "by_resource_sort_order",
-              (query: IndexRangeBuilder<Doc<"resourceItems">, ["resourceId", "sortOrder"]>) =>
+              (query: IndexRangeBuilder<Doc<"v2_resourceItems">, ["resourceId", "sortOrder"]>) =>
                 query.eq("resourceId", resource._id),
             )
             .collect()
         ).sort(
-          (left: Doc<"resourceItems">, right: Doc<"resourceItems">) =>
+          (left: Doc<"v2_resourceItems">, right: Doc<"v2_resourceItems">) =>
             left.sortOrder - right.sortOrder,
         );
 
@@ -103,7 +103,7 @@ export const listForMcp = privateQuery({
           updatedAt: resource.updatedAt,
           itemCount: items.length,
           items: includeItems
-            ? items.map((item: Doc<"resourceItems">) => ({
+            ? items.map((item: Doc<"v2_resourceItems">) => ({
                 id: item._id,
                 name: item.name,
                 description: item.description ?? null,

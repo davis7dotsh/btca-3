@@ -8,12 +8,14 @@
   "type": "module",
   "exports": {
     ".": "./src/server.ts",
+    "./config-schema": "./src/config-schema.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public",
     "exports": {
       ".": "./dist/src/server.mjs",
+      "./config-schema": "./dist/src/config-schema.mjs",
       "./package.json": "./package.json"
     }
   },
