@@ -1,4 +1,5 @@
-import { OPENCODE_API_KEY } from "$env/static/private";
+import { OPENCODE_API_KEY, TCC_API_KEY } from "$env/static/private";
+import { instrumentPiEventStream } from "@contextcompany/pi";
 import {
   agentLoop,
   type AgentEvent,
@@ -249,6 +250,15 @@ Use this ability to answer the user's question.
 
 const buildBasePrompt = (workspaceDir: string) =>
   BASE_PROMPT.replaceAll("__WORKSPACE_DIR__", workspaceDir);
+
+const TCC_PROD_BASE_URL = "https://api.thecontext.company";
+const TCC_DEV_BASE_URL = "https://dev.thecontext.company";
+
+const resolveTccEndpoint = (apiKey: string) =>
+  apiKey.startsWith("dev_") ? TCC_DEV_BASE_URL : TCC_PROD_BASE_URL;
+
+const getSerializedSizeBytes = (value: unknown) =>
+  new TextEncoder().encode(JSON.stringify(value)).length;
 
 type SandboxServiceError = BoxServiceError;
 type ToolCallArguments = Record<string, unknown> | string | null | undefined;
@@ -1051,6 +1061,23 @@ const createPromptThread =
         let activeAssistantGenerationStartedAt: number | null = null;
         let assistantGenerationDurationMs = 0;
         let assistantOutputTokens = 0;
+        let tccRunStartedAt: number | null = null;
+        const tccToolExecutions: Array<{
+          toolCallId: string;
+          toolName: string;
+          args: unknown;
+          isError: boolean;
+          startTimestamp: number;
+          endTimestamp?: number;
+          result?: unknown;
+        }> = [];
+        const tccCollectedMessages: AgentMessage[] = [];
+        const tccEndpoint = resolveTccEndpoint(TCC_API_KEY);
+        const tccMetadata = {
+          provider: selectedModel.model.provider,
+          modelId: selectedModel.id,
+          resourceNames: taggedResources.map((resource) => resource.name),
+        };
         const events = agentLoop(
           messages,
           createThreadContext(
@@ -1064,6 +1091,12 @@ const createPromptThread =
           createThreadConfig(input.threadId, selectedModel.model),
           runSignal ?? undefined,
         );
+        const instrumentedEvents = instrumentPiEventStream(events, {
+          apiKey: TCC_API_KEY,
+          sessionId: input.threadId,
+          metadata: tccMetadata,
+          debug: true,
+        });
 
         return {
           threadId: input.threadId,
@@ -1079,14 +1112,27 @@ const createPromptThread =
           },
           events: (async function* () {
             try {
-              for await (const event of events) {
+              for await (const event of instrumentedEvents) {
                 throwIfRunAborted();
+
+                if (event.type === "agent_start") {
+                  tccRunStartedAt = Date.now();
+                  console.log("[TCC Debug] Agent run started", {
+                    threadId: input.threadId,
+                    endpoint: tccEndpoint,
+                    sessionId: input.threadId,
+                    runId: instrumentedEvents.getLastRunId(),
+                    ...tccMetadata,
+                  });
+                }
 
                 if (event.type === "message_update" && event.message.role === "assistant") {
                   partialAssistantMessage = cloneMessage(event.message);
                 }
 
                 if (event.type === "message_end") {
+                  tccCollectedMessages.push(event.message);
+
                   if (event.message.role === "assistant") {
                     const completedAssistant = cloneMessage(event.message);
                     completedMessages.push(completedAssistant);
@@ -1102,6 +1148,13 @@ const createPromptThread =
 
                 if (event.type === "tool_execution_start") {
                   toolCallIds.add(event.toolCallId);
+                  tccToolExecutions.push({
+                    toolCallId: event.toolCallId,
+                    toolName: event.toolName,
+                    args: event.args,
+                    isError: false,
+                    startTimestamp: Date.now(),
+                  });
                   pendingToolCalls.set(event.toolCallId, {
                     toolName: event.toolName,
                     args: event.args,
@@ -1110,6 +1163,17 @@ const createPromptThread =
 
                 if (event.type === "tool_execution_end") {
                   const pendingToolCall = pendingToolCalls.get(event.toolCallId);
+                  const tccToolExecution = tccToolExecutions.find(
+                    (toolExecution) =>
+                      toolExecution.toolCallId === event.toolCallId &&
+                      toolExecution.endTimestamp === undefined,
+                  );
+
+                  if (tccToolExecution) {
+                    tccToolExecution.endTimestamp = Date.now();
+                    tccToolExecution.result = event.result;
+                    tccToolExecution.isError = event.isError === true;
+                  }
 
                   if (event.toolName === "exec_command" && !event.isError) {
                     const result = isRecord(event.result?.details)
@@ -1174,6 +1238,28 @@ const createPromptThread =
 
                 if (event.type === "agent_end") {
                   throwIfRunAborted();
+                  const tccPayload = {
+                    runId: instrumentedEvents.getLastRunId(),
+                    startTimestamp: tccRunStartedAt,
+                    endTimestamp: Date.now(),
+                    messages:
+                      tccCollectedMessages.length > 0
+                        ? tccCollectedMessages
+                        : (event.messages ?? []),
+                    toolExecutions: tccToolExecutions,
+                    sessionId: input.threadId,
+                    metadata: tccMetadata,
+                  };
+
+                  console.log("[TCC Debug] Agent run ended", {
+                    threadId: input.threadId,
+                    endpoint: tccEndpoint,
+                    runId: instrumentedEvents.getLastRunId(),
+                    messageCount: tccPayload.messages.length,
+                    toolExecutionCount: tccPayload.toolExecutions.length,
+                    payloadBytes: getSerializedSizeBytes(tccPayload),
+                    ...tccMetadata,
+                  });
                   turnCost.totalUsd = addUsd(turnCost.modelUsd, turnCost.boxUsd, turnCost.exaUsd);
                   const runMetrics = buildRunMetrics({
                     priceUsd: turnCost.totalUsd,

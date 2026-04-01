@@ -9,6 +9,9 @@ catalogs:
     '@axiomhq/js':
       specifier: ^1.5.0
       version: 1.5.0
+    '@contextcompany/pi':
+      specifier: ^1.1.1
+      version: 1.1.1
     '@lucide/svelte':
       specifier: ^1.6.0
       version: 1.6.0
@@ -157,9 +160,6 @@ importers:
 
   apps/server:
     dependencies:
-      '@contextcompany/pi':
-        specifier: ^1.1.1
-        version: 1.1.1(@mariozechner/pi-coding-agent@0.64.0(ws@8.20.0)(zod@4.3.6))
       '@effect/platform-node':
         specifier: 4.0.0-beta.40
         version: 4.0.0-beta.40(effect@4.0.0-beta.40)(ioredis@5.10.1)
@@ -203,6 +203,9 @@ importers:
       '@btca/server':
         specifier: workspace:*
         version: link:../server
+      '@contextcompany/pi':
+        specifier: 'catalog:'
+        version: 1.1.1(@mariozechner/pi-coding-agent@0.64.0(ws@8.20.0)(zod@4.3.6))
       '@effect/platform-node':
         specifier: ^4.0.0-beta.36
         version: 4.0.0-beta.40(effect@4.0.0-beta.40)(ioredis@5.10.1)

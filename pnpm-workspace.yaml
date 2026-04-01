@@ -6,6 +6,7 @@ packages:
 catalog:
   "@ai-sdk/openai": ^3.0.48
   "@axiomhq/js": ^1.5.0
+  '@contextcompany/pi': ^1.1.1
   "@lucide/svelte": ^1.6.0
   "@mariozechner/pi-agent-core": ^0.62.0
   "@mariozechner/pi-ai": ^0.62.0
