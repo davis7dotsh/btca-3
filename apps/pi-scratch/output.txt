@@ -1,0 +1,72 @@
+[34m~/apps/pi-scratch$ tsx src/index.ts[0m [30m⊘[0m [90mcache disabled[0m
+timestamp=2026-04-03T02:36:26.046Z level=INFO fiber=#0 message="Preparing workspace at /Users/davis/.btca/agent-box"
+timestamp=2026-04-03T02:36:26.147Z level=INFO fiber=#0 message="Docker detected (server 28.5.2)"
+timestamp=2026-04-03T02:36:26.205Z level=INFO fiber=#0 message="Using existing Docker image btca-agent-box"
+timestamp=2026-04-03T02:36:26.436Z level=INFO fiber=#0 message="Started container btca-agent-box-18416-mnialbni"
+timestamp=2026-04-03T02:36:26.436Z level=INFO fiber=#0 message="Running pwd: pwd"
+timestamp=2026-04-03T02:36:26.540Z level=INFO fiber=#0 message="{
+  \"label\": \"pwd\",
+  \"cwd\": \"/workspace\",
+  \"exitCode\": 0,
+  \"stdout\": \"/workspace\",
+  \"stderr\": \"\"
+}"
+timestamp=2026-04-03T02:36:26.541Z level=INFO fiber=#0 message="Running list workspace: ls -la"
+timestamp=2026-04-03T02:36:26.625Z level=INFO fiber=#0 message="{
+  \"label\": \"list workspace\",
+  \"cwd\": \"/workspace\",
+  \"exitCode\": 0,
+  \"stdout\": \"total 0\ndrwxr-xr-x 1 root root 96 Apr  3 02:28 .\ndrwxr-xr-x 1 root root 12 Apr  3 02:36 ..\ndrwxr-xr-x 1 root root 96 Apr  3 02:28 demo\",
+  \"stderr\": \"\"
+}"
+timestamp=2026-04-03T02:36:26.625Z level=INFO fiber=#0 message="Running mkdir demo: mkdir -p demo"
+timestamp=2026-04-03T02:36:26.702Z level=INFO fiber=#0 message="{
+  \"label\": \"mkdir demo\",
+  \"cwd\": \"/workspace\",
+  \"exitCode\": 0,
+  \"stdout\": \"\",
+  \"stderr\": \"\"
+}"
+timestamp=2026-04-03T02:36:26.703Z level=INFO fiber=#0 message="Running cd demo: cd demo"
+timestamp=2026-04-03T02:36:26.781Z level=INFO fiber=#0 message="{
+  \"label\": \"cd demo\",
+  \"cwd\": \"/workspace/demo\",
+  \"exitCode\": 0,
+  \"stdout\": \"Changed directory to /workspace/demo\",
+  \"stderr\": \"\"
+}"
+timestamp=2026-04-03T02:36:26.781Z level=INFO fiber=#0 message="Running pwd after cd: pwd"
+timestamp=2026-04-03T02:36:26.864Z level=INFO fiber=#0 message="{
+  \"label\": \"pwd after cd\",
+  \"cwd\": \"/workspace/demo\",
+  \"exitCode\": 0,
+  \"stdout\": \"/workspace/demo\",
+  \"stderr\": \"\"
+}"
+timestamp=2026-04-03T02:36:26.864Z level=INFO fiber=#0 message="Running write file: printf 'hello from docker backend
+' > hello.txt"
+timestamp=2026-04-03T02:36:26.959Z level=INFO fiber=#0 message="{
+  \"label\": \"write file\",
+  \"cwd\": \"/workspace/demo\",
+  \"exitCode\": 0,
+  \"stdout\": \"\",
+  \"stderr\": \"\"
+}"
+timestamp=2026-04-03T02:36:26.959Z level=INFO fiber=#0 message="Running read file: cat hello.txt"
+timestamp=2026-04-03T02:36:27.051Z level=INFO fiber=#0 message="{
+  \"label\": \"read file\",
+  \"cwd\": \"/workspace/demo\",
+  \"exitCode\": 0,
+  \"stdout\": \"hello from docker backend\",
+  \"stderr\": \"\"
+}"
+timestamp=2026-04-03T02:36:27.051Z level=INFO fiber=#0 message="Running tool versions: git --version && npm --version && curl --version | head -n 1 && rg --version | head -n 1"
+timestamp=2026-04-03T02:36:27.202Z level=INFO fiber=#0 message="{
+  \"label\": \"tool versions\",
+  \"cwd\": \"/workspace/demo\",
+  \"exitCode\": 0,
+  \"stdout\": \"git version 2.39.5\n10.9.7\ncurl 7.88.1 (aarch64-unknown-linux-gnu) libcurl/7.88.1 OpenSSL/3.0.18 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13\nripgrep 13.0.0\",
+  \"stderr\": \"\"
+}"
+timestamp=2026-04-03T02:36:27.351Z level=INFO fiber=#0 message="Stopped container btca-agent-box-18416-mnialbni"
+

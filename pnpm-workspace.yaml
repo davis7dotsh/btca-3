@@ -9,6 +9,8 @@ catalog:
   "@lucide/svelte": ^1.6.0
   "@mariozechner/pi-agent-core": ^0.62.0
   "@mariozechner/pi-ai": ^0.62.0
+  '@mariozechner/pi-coding-agent': ^0.64.0
+  '@mariozechner/pi-tui': ^0.64.0
   "@opencode-ai/sdk": ^1.3.2
   "@opentelemetry/api": ^1.9.1
   "@opentelemetry/exporter-trace-otlp-http": ^0.214.0
@@ -17,7 +19,7 @@ catalog:
   "@opentelemetry/semantic-conventions": ^1.40.0
   "@opentui/core": ^0.1.90
   "@opentui/react": ^0.1.90
-  "@sinclair/typebox": ^0.34.48
+  "@sinclair/typebox": ^0.34.49
   "@sveltejs/adapter-vercel": ^6.3.3
   "@sveltejs/kit": ^2.55.0
   "@tmcp/adapter-zod": ^0.1.7
@@ -39,6 +41,7 @@ catalog:
   convex: ^1.34.0
   convex-helpers: ^0.1.114
   convex-svelte: ^0.0.12
+  effect: ^3.21.0
   exa-js: ^2.10.1
   ink: ^6.8.0
   ink-text-input: ^6.0.0
@@ -52,7 +55,7 @@ catalog:
   typescript: ^5.9.3
   uploadthing: ^7.7.4
   vite: npm:@voidzero-dev/vite-plus-core@latest
-  vite-plus: ^0.1.14
+  vite-plus: ^0.1.15
   vitest: npm:@voidzero-dev/vite-plus-test@latest
   yaml: ^2.8.3
   zod: ^4.3.6

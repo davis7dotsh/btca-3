@@ -1,0 +1,9 @@
+{
+  "sessionDir": "sessions",
+  "extensions": ["extensions"],
+  "skills": [],
+  "prompts": [],
+  "themes": [],
+  "packages": [],
+  "enableSkillCommands": true
+}
