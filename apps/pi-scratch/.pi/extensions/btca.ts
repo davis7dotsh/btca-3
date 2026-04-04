@@ -1,104 +1,69 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
-import { Effect } from "effect";
-import { createDockerAgentBoxBackend } from "../../src/docker-backend.ts";
 
-const agentBoxToolName = "agent_box_exec";
-const backend = createDockerAgentBoxBackend();
+const AGENT_WORKSPACE_PATH = "~/.btca/agent/workspace";
+const accent = (text: string) => `\x1b[38;2;72;130;234m${text}\x1b[39m`;
 
-const startBackend = () => Effect.runPromise(backend.start);
-const stopBackend = () => Effect.runPromise(backend.stop.pipe(Effect.ignoreLogged));
+const SYSTEM_PROMPT_APPEND = `
+You are btca, a local code and documentation research agent.
+
+You operate inside a managed workspace where you can use git, npm, curl, and anything else you need to answer the user's question.
+
+Rules:
+- Prefer searching the workspace over answering from memory.
+- Use shell tools like rg, find, ls, cat, sed, head, and tail.
+- Always clone repos and install npm packages inside the workspace directory
+- Cite workspace-relative file paths in your answer when useful.
+- Keep the workspace tidy
+
+Workspace root: ${AGENT_WORKSPACE_PATH}
+
+The first thing you should do is cd into the workspace root if you're not already there. Then work to answer the user's question.
+`;
 
 export default function (pi: ExtensionAPI) {
-  pi.on("session_start", async (_event, ctx) => {
-    pi.setActiveTools([agentBoxToolName]);
-    ctx.ui.setStatus("btca-scratch", ctx.ui.theme.fg("accent", "agent box safe mode"));
-    await startBackend();
-    ctx.ui.notify(`Agent box ready at ${backend.workspaceDir}`, "info");
-  });
-
-  pi.on("session_shutdown", async () => {
-    await stopBackend();
-  });
-
   pi.on("before_agent_start", async (event) => {
     return {
-      systemPrompt:
-        event.systemPrompt +
-        "\n\n" +
-        [
-          "BTCA scratch mode:",
-          "- Use the agent_box_exec tool for shell access.",
-          "- Your persistent workspace is mounted at /workspace inside the agent box.",
-          "- The working directory persists between tool calls.",
-          "- Use real shell commands like git, npm, curl, and rg inside the box.",
-          "- Prefer plain `cd <path>` as its own tool call when you want to change directories persistently.",
-        ].join("\n"),
+      systemPrompt: `${event.systemPrompt}\n\n${SYSTEM_PROMPT_APPEND.trim()}`,
     };
   });
 
-  pi.on("tool_call", async (event) => {
-    if (["bash", "read", "write", "edit"].includes(event.toolName)) {
-      return {
-        block: true,
-        reason:
-          "Use agent_box_exec instead of host filesystem or host shell tools in btca scratch mode.",
-      };
-    }
-  });
+  pi.on("session_start", (_event, ctx) => {
+    pi.setActiveTools(["read", "bash"]);
 
-  pi.registerTool({
-    name: agentBoxToolName,
-    label: "Agent Box Exec",
-    description: "Execute a shell command inside the persistent Docker-backed agent box workspace.",
-    promptSnippet: "Run shell commands inside the persistent /workspace agent box using Docker.",
-    promptGuidelines: [
-      "Use this tool for shell access instead of host bash/read/write/edit tools.",
-      "Use plain `cd <path>` as a separate call when you want to persistently change directories.",
-    ],
-    parameters: Type.Object({
-      command: Type.String({ description: "Shell command to run inside the agent box" }),
-      cwd: Type.Optional(
-        Type.String({
-          description: "Optional working directory inside the agent box, e.g. /workspace/repo",
-        }),
-      ),
-      timeoutSeconds: Type.Optional(
-        Type.Number({ description: "Optional timeout in seconds", minimum: 1, maximum: 1800 }),
-      ),
-    }),
-    async execute(_toolCallId, params) {
-      const result = await Effect.runPromise(
-        backend.exec(params.command, params.cwd, params.timeoutSeconds),
-      );
+    if (!ctx.hasUI) return;
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(
-              {
-                cwd: result.cwd,
-                exitCode: result.exitCode,
-                stdout: result.stdout,
-                stderr: result.stderr,
-              },
-              null,
-              2,
-            ),
-          },
-        ],
-        details: result,
-      };
-    },
-  });
+    ctx.ui.setHeader((_tui, theme) => ({
+      render(_width) {
+        return [
+          "",
+          accent("██████╗ ████████╗ ██████╗ █████╗"),
+          accent("██╔══██╗╚══██╔══╝██╔════╝██╔══██╗"),
+          accent("██████╦╝   ██║   ██║     ███████║"),
+          accent("██╔══██╗   ██║   ██║     ██╔══██║"),
+          accent("██████╦╝   ██║   ╚██████╗██║  ██║"),
+          theme.fg("muted", "╚═════╝    ╚═╝    ╚═════╝╚═╝  ╚═╝"),
+          "",
+        ];
+      },
+      invalidate() {},
+    }));
 
-  pi.registerCommand("agent-box-status", {
-    description: "Show agent box backend status",
-    handler: async (_args, ctx) => {
-      ctx.ui.notify(`Workspace: ${backend.workspaceDir}`, "info");
-      ctx.ui.notify(`Container: ${backend.containerName}`, "info");
-      ctx.ui.notify(`Cwd: ${backend.getCurrentCwd()}`, "info");
-    },
+    ctx.ui.setFooter((_tui, theme, _footerData) => ({
+      invalidate() {},
+      render(_width) {
+        const model = ctx.model?.id ?? "no-model";
+        let totalCost = 0;
+
+        for (const entry of ctx.sessionManager.getBranch()) {
+          if (entry.type !== "message" || entry.message.role !== "assistant")
+            continue;
+          totalCost += entry.message.usage.cost.total;
+        }
+
+        return [
+          `${theme.fg("dim", "safe mode")} ${accent(model)} ${theme.fg("muted", `$${totalCost.toFixed(3)}`)}`,
+        ];
+      },
+    }));
   });
 }
