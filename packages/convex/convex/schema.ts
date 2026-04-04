@@ -33,6 +33,15 @@ const legacyMessageContentValidator = v.union(
   }),
 );
 
+const legacyMessageStatsValidator = v.object({
+  durationMs: v.number(),
+  inputTokens: v.number(),
+  outputTokens: v.number(),
+  tokensPerSecond: v.number(),
+  totalPriceUsd: v.number(),
+  totalTokens: v.number(),
+});
+
 const resourceCuratorValidator = v.object({
   kind: v.union(v.literal("user"), v.literal("agent")),
   userId: v.optional(v.string()),
@@ -157,6 +166,7 @@ export default defineSchema({
     threadId: v.id("threads"),
     role: v.union(v.literal("user"), v.literal("assistant"), v.literal("system")),
     content: legacyMessageContentValidator,
+    stats: v.optional(legacyMessageStatsValidator),
     resources: v.optional(v.array(v.string())),
     canceled: v.optional(v.boolean()),
     createdAt: v.number(),
