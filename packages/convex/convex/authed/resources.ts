@@ -10,9 +10,14 @@ import {
 } from "../resourceHelpers";
 import { authedMutation, authedQuery } from "./helpers";
 
-const getUserId = (identity: { subject: string }) => identity.subject;
-type AuthedQueryCtx = QueryCtx & { identity: { subject: string } };
-type AuthedMutationCtx = MutationCtx & { identity: { subject: string } };
+type AuthUser = {
+  userId: string;
+  workosUserId: string;
+  legacyClerkUserId: string | null;
+};
+
+type AuthedQueryCtx = QueryCtx & { identity: { subject: string }; authUser: AuthUser };
+type AuthedMutationCtx = MutationCtx & { identity: { subject: string }; authUser: AuthUser };
 
 const createCurator = (userId: string) => ({
   kind: "user" as const,
@@ -138,7 +143,7 @@ const createResourceRecord = async ({
 export const list = authedQuery({
   args: {},
   handler: async (ctx) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const resources = await ctx.db
       .query("v2_resources")
       .withIndex("by_user_id", (query) => query.eq("userId", userId))
@@ -170,7 +175,7 @@ export const get = authedQuery({
     resourceId: v.id("v2_resources"),
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const resource = await getOwnedResource(ctx, args.resourceId, userId);
     const items = (
       await ctx.db
@@ -205,7 +210,7 @@ export const create = authedMutation({
     name: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const name = normalizeResourceName(args.name);
     await ensureUniqueSlug({ ctx, userId, name });
 
@@ -227,7 +232,7 @@ export const createWithItems = authedMutation({
     items: v.array(v.object(itemArgs)),
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const name = normalizeResourceName(args.name);
     await ensureUniqueSlug({ ctx, userId, name });
     if (args.items.length === 0) {
@@ -267,7 +272,7 @@ export const update = authedMutation({
     name: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const resource = await getOwnedResource(ctx, args.resourceId, userId);
     const name = normalizeResourceName(args.name);
     await ensureUniqueSlug({ ctx, userId, name, resourceId: resource._id });
@@ -289,7 +294,7 @@ export const remove = authedMutation({
     resourceId: v.id("v2_resources"),
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const resource = await getOwnedResource(ctx, args.resourceId, userId);
     const items = await ctx.db
       .query("v2_resourceItems")
@@ -310,7 +315,7 @@ export const createItem = authedMutation({
     ...itemArgs,
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const resource = await getOwnedResource(ctx, args.resourceId, userId);
     const existingItems = await ctx.db
       .query("v2_resourceItems")
@@ -346,7 +351,7 @@ export const updateItem = authedMutation({
     ...itemArgs,
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const { item, resource } = await getOwnedResourceItem(ctx, args.itemId, userId);
     const itemFields = await buildResourceItemFields({ userId, ...args });
     const updatedAt = Date.now();
@@ -374,7 +379,7 @@ export const removeItem = authedMutation({
     itemId: v.id("v2_resourceItems"),
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const { item, resource } = await getOwnedResourceItem(ctx, args.itemId, userId);
     const siblingItems = (
       await ctx.db
@@ -407,7 +412,7 @@ export const refreshItemIcon = authedMutation({
     itemId: v.id("v2_resourceItems"),
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const { item, resource } = await getOwnedResourceItem(ctx, args.itemId, userId);
     const updatedAt = Date.now();
     const updatedBy = createCurator(userId);
@@ -437,7 +442,7 @@ export const reorderItems = authedMutation({
     itemIds: v.array(v.id("v2_resourceItems")),
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const resource = await getOwnedResource(ctx, args.resourceId, userId);
     const existingItems = (
       await ctx.db

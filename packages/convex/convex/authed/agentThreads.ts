@@ -1,8 +1,6 @@
 import { v } from "convex/values";
 import { authedMutation, authedQuery } from "./helpers";
 
-const getUserId = (identity: { subject: string }) => identity.subject;
-
 const toThreadListItem = (thread: {
   threadId: string;
   title?: string;
@@ -36,7 +34,7 @@ const toThreadListItem = (thread: {
 export const list = authedQuery({
   args: {},
   handler: async (ctx) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const threads = await ctx.db
       .query("v2_agentThreads")
       .withIndex("by_user_id", (query) => query.eq("userId", userId))
@@ -63,7 +61,7 @@ export const list = authedQuery({
 export const listMcp = authedQuery({
   args: {},
   handler: async (ctx) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const threads = await ctx.db
       .query("v2_agentThreads")
       .withIndex("by_user_id", (query) => query.eq("userId", userId))
@@ -95,7 +93,7 @@ export const get = authedQuery({
     threadId: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const thread = await ctx.db
       .query("v2_agentThreads")
       .withIndex("by_thread_id", (query) => query.eq("threadId", args.threadId))
@@ -151,7 +149,7 @@ export const get = authedQuery({
 export const getDefaultModel = authedQuery({
   args: {},
   handler: async (ctx) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const preferences = await ctx.db
       .query("v2_agentUserPreferences")
       .withIndex("by_user_id", (query) => query.eq("userId", userId))
@@ -168,7 +166,7 @@ export const setDefaultModel = authedMutation({
     modelId: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const now = Date.now();
     const existing = await ctx.db
       .query("v2_agentUserPreferences")
@@ -201,7 +199,7 @@ export const setThreadModelSelection = authedMutation({
     modelId: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const now = Date.now();
     const thread = await ctx.db
       .query("v2_agentThreads")
@@ -253,7 +251,7 @@ export const deleteThread = authedMutation({
     threadId: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const thread = await ctx.db
       .query("v2_agentThreads")
       .withIndex("by_thread_id", (query) => query.eq("threadId", args.threadId))
@@ -298,7 +296,7 @@ export const rewindThread = authedMutation({
       throw new Error("Expected a non-negative message sequence.");
     }
 
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const thread = await ctx.db
       .query("v2_agentThreads")
       .withIndex("by_thread_id", (query) => query.eq("threadId", args.threadId))
@@ -381,7 +379,7 @@ export const removePendingAttachment = authedMutation({
     attachmentId: v.id("v2_agentThreadAttachments"),
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const attachment = await ctx.db.get(args.attachmentId);
 
     if (attachment === null) {
@@ -412,7 +410,7 @@ export const create = authedMutation({
     isMcp: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const userId = getUserId(ctx.identity);
+    const userId = ctx.authUser.userId;
     const existing = await ctx.db
       .query("v2_agentThreads")
       .withIndex("by_thread_id", (query) => query.eq("threadId", args.threadId))

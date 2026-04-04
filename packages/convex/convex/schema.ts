@@ -208,6 +208,22 @@ export default defineSchema({
     endDate: v.number(),
     description: v.optional(v.string()),
   }),
+  v2_identityLinks: defineTable({
+    clerkUserId: v.string(),
+    workosUserId: v.string(),
+    primaryEmail: v.optional(v.string()),
+    migrationSource: v.union(
+      v.literal("workos_external_id"),
+      v.literal("sign_in_fallback"),
+      v.literal("manual"),
+    ),
+    createdAt: v.number(),
+    linkedAt: v.number(),
+    status: v.union(v.literal("linked"), v.literal("fallback_linked"), v.literal("pending_review")),
+  })
+    .index("by_clerk_user_id", ["clerkUserId"])
+    .index("by_workos_user_id", ["workosUserId"])
+    .index("by_primary_email", ["primaryEmail"]),
   v2_agentThreads: defineTable({
     threadId: v.string(),
     userId: v.string(),

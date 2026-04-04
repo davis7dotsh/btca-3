@@ -12,11 +12,13 @@ import { ExaService, ExaServiceError } from "./services/exa";
 import { RunControlService } from "./services/runControl";
 import { RunStreamService, RunStreamServiceError } from "./services/runStream";
 
+const authLayer = AuthService.layer.pipe(Layer.provide(ConvexPrivateService.layer));
+
 const appLayer = Layer.mergeAll(
   NodeServices.layer,
   ConvexPrivateService.layer,
   AutumnService.layer,
-  AuthService.layer,
+  authLayer,
   ExaService.layer,
   BoxService.layer,
   RunControlService.layer,

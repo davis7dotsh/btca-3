@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "migrate:clerk:export": "node --experimental-strip-types ./scripts/migrations/clerk-export.ts",
+    "migrate:workos:import": "node --experimental-strip-types ./scripts/migrations/workos-import.ts",
+    "migrate:workos:backfill-links": "node --experimental-strip-types ./scripts/migrations/backfill-identity-links.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.47",

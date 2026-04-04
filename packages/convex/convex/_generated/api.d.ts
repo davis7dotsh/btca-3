@@ -16,6 +16,7 @@ import type * as authed_resources from "../authed/resources.js";
 import type * as private_agentThreads from "../private/agentThreads.js";
 import type * as private_demo from "../private/demo.js";
 import type * as private_helpers from "../private/helpers.js";
+import type * as private_identityLinks from "../private/identityLinks.js";
 import type * as private_resources from "../private/resources.js";
 import type * as resourceHelpers from "../resourceHelpers.js";
 
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   "private/agentThreads": typeof private_agentThreads;
   "private/demo": typeof private_demo;
   "private/helpers": typeof private_helpers;
+  "private/identityLinks": typeof private_identityLinks;
   "private/resources": typeof private_resources;
   resourceHelpers: typeof resourceHelpers;
 }>;
