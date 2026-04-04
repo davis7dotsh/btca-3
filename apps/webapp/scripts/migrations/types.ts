@@ -91,3 +91,24 @@ export interface IdentityLinkBackfillReport {
     message: string;
   }>;
 }
+
+export interface AutumnReconciliationReport {
+  generatedAt: string;
+  dryRun: boolean;
+  source: "import-report" | "workos-scan";
+  attempted: number;
+  renamedCustomers: number;
+  alreadyCanonical: number;
+  missingLegacyCustomers: number;
+  conflicts: number;
+  skipped: Array<{
+    clerkUserId: string;
+    workosUserId: string;
+    reason: string;
+  }>;
+  errors: Array<{
+    clerkUserId: string;
+    workosUserId: string;
+    message: string;
+  }>;
+}

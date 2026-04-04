@@ -13,12 +13,6 @@
 
 	const publicOrigin = $derived(page.url.origin);
 	const mcpUrl = $derived(new URL(resolve('/api/mcp'), publicOrigin).href);
-	const protectedResourceUrl = $derived(
-		new URL(resolve('/.well-known/oauth-protected-resource'), publicOrigin).href
-	);
-	const authorizationServerUrl = $derived(
-		new URL(resolve('/.well-known/oauth-authorization-server'), publicOrigin).href
-	);
 
 	let copiedSnippetId = $state<string | null>(null);
 
@@ -92,21 +86,6 @@
 		}
 	]);
 
-	const endpointCards = $derived([
-		{
-			title: 'MCP Endpoint',
-			value: mcpUrl
-		},
-		{
-			title: 'Protected Resource Metadata',
-			value: protectedResourceUrl
-		},
-		{
-			title: 'Authorization Server Metadata',
-			value: authorizationServerUrl
-		}
-	]);
-
 	async function copySnippet(snippetId: string, value: string) {
 		try {
 			await navigator.clipboard.writeText(value);
@@ -149,20 +128,6 @@
 			</button>
 		</div>
 
-		<div class="mt-6 grid gap-3 md:grid-cols-3">
-			{#each endpointCards as card (card.title)}
-				<div class="bc-card p-4">
-					<p
-						class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]"
-					>
-						{card.title}
-					</p>
-					<p class="mt-3 font-mono text-xs leading-6 break-all text-[hsl(var(--bc-fg))]">
-						{card.value}
-					</p>
-				</div>
-			{/each}
-		</div>
 	</section>
 
 	<section class="px-6 py-6">

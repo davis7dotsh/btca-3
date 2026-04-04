@@ -22,6 +22,11 @@ These are one-off utilities for the migration described in [MIGRATION.md](/Users
 - Reads the import report or scans WorkOS users by `externalId`.
 - Upserts `v2_identityLinks` into Convex using the private bridge.
 
+`reconcile-autumn-customers.ts`
+
+- Renames WorkOS-keyed Autumn customers to the canonical Clerk ID when a matching identity link exists.
+- Skips safely if the customer is already canonical or if both IDs already exist in Autumn.
+
 ## Environment
 
 Export:
@@ -59,6 +64,12 @@ vp run @btca/webapp#migrate:workos:import -- --in=./tmp/clerk-export.json --impo
 vp run @btca/webapp#migrate:workos:backfill-links -- --from=./tmp/clerk-export.workos-import.json
 ```
 
+4. Reconcile Autumn customers:
+
+```sh
+vp run @btca/webapp#migrate:autumn:reconcile -- --from=./tmp/clerk-export.workos-import.json --dry-run
+```
+
 ## Notes
 
 - The import script uses the Clerk user ID as WorkOS `externalId`, which matches the continuity plan.
@@ -66,3 +77,4 @@ vp run @btca/webapp#migrate:workos:backfill-links -- --from=./tmp/clerk-export.w
 - Secondary email addresses are preserved in WorkOS metadata as a pipe-delimited string, not as separate WorkOS emails.
 - If you have Clerk password digests, pass them in with `--passwords=PATH`. The script imports them as WorkOS `bcrypt` hashes.
 - Organization roles are not blindly copied. If you want role preservation, pass `--role-map=PATH` with a JSON object like `{ "org:admin": "admin", "org:member": "member" }`.
+- Autumn reconciliation uses `customers.update({ newCustomerId })` so any existing WorkOS-keyed customer can be renamed to the Clerk ID without changing the runtime billing flow.
