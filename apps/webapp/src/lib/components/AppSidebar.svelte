@@ -7,7 +7,6 @@
 		ChevronDown,
 		Command,
 		CreditCard,
-		LifeBuoy,
 		MessageSquare,
 		Moon,
 		PanelLeftClose,
@@ -412,10 +411,6 @@
 				<a href={billingPath} class="user-menu-item" onclick={() => (userMenuOpen = false)}>
 					<CreditCard size={14} />
 					Billing
-				</a>
-				<a href={resolve('/app/mcp/getting-started')} class="user-menu-item" onclick={() => (userMenuOpen = false)}>
-					<LifeBuoy size={14} />
-					Getting started
 				</a>
 
 				<div class="user-menu-divider"></div>

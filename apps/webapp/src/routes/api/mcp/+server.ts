@@ -3,11 +3,17 @@ import { runtime } from "$lib/runtime";
 import { getAuthkitDomain, getProtectedResourceMetadataUrl } from "$lib/server/mcpAuthMetadata";
 import { AgentService } from "$lib/services/agent";
 import { ConvexPrivateService } from "$lib/services/convex";
+import {
+  getRateLimitHeaders,
+  RateLimitService,
+  type RateLimitCheckResult,
+} from "$lib/services/rateLimit";
 import { ZodJsonSchemaAdapter } from "@tmcp/adapter-zod";
 import { HttpTransport } from "@tmcp/transport-http";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import { createRemoteJWKSet, errors, jwtVerify, type JWTPayload } from "jose";
 import { Effect } from "effect";
+import { waitUntil } from "@vercel/functions";
 import { McpServer } from "tmcp";
 import { tool } from "tmcp/utils";
 import type { RequestHandler } from "@sveltejs/kit";
@@ -62,7 +68,8 @@ const MCP_AUTH_CHANGED_MESSAGE =
 
 const corsHeaders = () => ({
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Expose-Headers": "WWW-Authenticate, mcp-session-id",
+  "Access-Control-Expose-Headers":
+    "WWW-Authenticate, mcp-session-id, Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset",
 });
 
 const readBearerToken = (authorizationHeader: string | null) =>
@@ -90,6 +97,28 @@ const unauthorized = (request: Request) => {
     },
   );
 };
+
+const rateLimited = ({
+  message,
+  result,
+}: {
+  message: string;
+  result: Pick<RateLimitCheckResult, "limit" | "remaining" | "reset">;
+}) =>
+  Response.json(
+    {
+      error: "Rate limit exceeded",
+      message,
+    },
+    {
+      status: 429,
+      headers: {
+        "Cache-Control": "no-store",
+        ...corsHeaders(),
+        ...getRateLimitHeaders(result),
+      },
+    },
+  );
 
 const getPermissions = (permissions: unknown) =>
   Array.isArray(permissions)
@@ -364,14 +393,31 @@ const handle: RequestHandler = async ({ request }) => {
       issuer: getAuthkitDomain().origin,
     });
 
-    if (!payload.sub) {
+    const userId = payload.sub;
+
+    if (!userId) {
       return unauthorized(request);
+    }
+
+    const mcpRateLimit = await runtime.runPromise(
+      Effect.gen(function* () {
+        const rateLimit = yield* RateLimitService;
+        return yield* rateLimit.checkMcp(userId);
+      }),
+    );
+    waitUntil(mcpRateLimit.pending);
+
+    if (!mcpRateLimit.allowed) {
+      return rateLimited({
+        message: "Rate limit exceeded. MCP is limited to 5 messages per second.",
+        result: mcpRateLimit,
+      });
     }
 
     return (
       (await transport.respond(request, {
         accessToken: token,
-        userId: payload.sub,
+        userId,
         organizationId: typeof payload.org_id === "string" ? payload.org_id : undefined,
         permissions: getPermissions(payload.permissions),
         expiresAt: typeof payload.exp === "number" ? payload.exp : undefined,

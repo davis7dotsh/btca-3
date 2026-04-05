@@ -7,6 +7,7 @@ import { AgentService } from "$lib/services/agent";
 import { AutumnService } from "$lib/services/autumn";
 import { AuthService } from "$lib/services/auth";
 import { BoxServiceError } from "$lib/services/box";
+import { getRateLimitHeaders, RateLimitService } from "$lib/services/rateLimit";
 import { RunControlService, RunKilledError } from "$lib/services/runControl";
 import { RunStreamService } from "$lib/services/runStream";
 import type { AgentPromptStreamEvent, AgentRunStartResponse } from "$lib/types/agent";
@@ -14,6 +15,7 @@ import type { AgentPromptStreamEvent, AgentRunStartResponse } from "$lib/types/a
 class AgentRequestError extends Data.TaggedError("AgentRequestError")<{
   readonly status: number;
   readonly message: string;
+  readonly headers?: Record<string, string>;
   readonly cause?: unknown;
 }> {}
 
@@ -291,6 +293,7 @@ export const POST: RequestHandler = async (event) => {
     const response = await runtime.runPromise(
       Effect.gen(function* () {
         const auth = yield* AuthService;
+        const rateLimit = yield* RateLimitService;
         const user = yield* auth.validateSession(event).pipe(
           Effect.mapError(
             (error) =>
@@ -301,6 +304,23 @@ export const POST: RequestHandler = async (event) => {
               }),
           ),
         );
+        const webChatRateLimit = yield* rateLimit.checkWebChat(user.userId);
+        waitUntil(webChatRateLimit.pending);
+
+        if (!webChatRateLimit.allowed) {
+          return yield* Effect.fail(
+            new AgentRequestError({
+              status: 429,
+              message: "Rate limit exceeded. Web chat is limited to 1 message per second.",
+              headers: {
+                "cache-control": "no-store",
+                ...getRateLimitHeaders(webChatRateLimit),
+              },
+              cause: webChatRateLimit,
+            }),
+          );
+        }
+
         const autumn = yield* AutumnService;
         const runControl = yield* RunControlService;
         const runStream = yield* RunStreamService;
@@ -385,7 +405,10 @@ export const POST: RequestHandler = async (event) => {
         {
           message: error.message,
         },
-        { status: error.status },
+        {
+          status: error.status,
+          headers: error.headers,
+        },
       );
     }
 

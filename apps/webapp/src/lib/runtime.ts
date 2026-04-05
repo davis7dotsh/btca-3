@@ -9,6 +9,7 @@ import { AuthError, AuthService } from "./services/auth";
 import { BoxService, BoxServiceError } from "./services/box";
 import { ConvexError, ConvexPrivateService } from "./services/convex";
 import { ExaService, ExaServiceError } from "./services/exa";
+import { RateLimitService } from "./services/rateLimit";
 import { RunControlService } from "./services/runControl";
 import { RunStreamService, RunStreamServiceError } from "./services/runStream";
 
@@ -20,6 +21,7 @@ const appLayer = Layer.mergeAll(
   AutumnService.layer,
   authLayer,
   ExaService.layer,
+  RateLimitService.layer,
   BoxService.layer,
   RunControlService.layer,
   RunStreamService.layer,
