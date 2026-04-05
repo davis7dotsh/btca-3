@@ -4,7 +4,6 @@ import {
   type AgentEvent,
   type AgentLoopConfig,
   type AgentMessage,
-  type AgentTool,
 } from "@mariozechner/pi-agent-core";
 import {
   getEnvApiKey,
@@ -15,7 +14,7 @@ import {
   type Model,
   type Usage,
 } from "@mariozechner/pi-ai";
-import { Type } from "@sinclair/typebox";
+import { Type, type Static } from "@sinclair/typebox";
 import type { Id } from "@btca/convex/data-model";
 import { Cause, Data, Effect, Layer, ServiceMap } from "effect";
 import { api } from "@btca/convex/api";
@@ -48,9 +47,7 @@ import {
   EXA_DATE_PATTERN,
   type ExaDef,
   type ExaGetWebContentInput,
-  type ExaGetWebContentResult,
   type ExaSearchWebInput,
-  type ExaSearchWebResult,
   ExaService,
   ExaServiceError,
   WEB_CONTENT_MAX_CHARACTERS,
@@ -564,140 +561,130 @@ const createReadFileTool = (
   sandbox: ResolvedSandboxAdapter,
   threadId: string,
   throwIfRunAborted: () => void,
-) =>
-  ({
-    label: "Read File",
-    name: "read_file",
-    description: `Read a text file from the ${sandbox.providerLabel} sandbox for the current thread.`,
-    parameters: readFileSchema,
-    execute: async (_toolCallId, args) => {
-      throwIfRunAborted();
-      const result = await Effect.runPromise(
-        sandbox.readFile({
-          threadId,
-          path: args.path,
-          startLine: args.startLine,
-          endLine: args.endLine,
-        }),
-      );
-      throwIfRunAborted();
+) => ({
+  label: "Read File",
+  name: "read_file",
+  description: `Read a text file from the ${sandbox.providerLabel} sandbox for the current thread.`,
+  parameters: readFileSchema,
+  execute: async (_toolCallId: string, args: Static<typeof readFileSchema>) => {
+    throwIfRunAborted();
+    const result = await Effect.runPromise(
+      sandbox.readFile({
+        threadId,
+        path: args.path,
+        startLine: args.startLine,
+        endLine: args.endLine,
+      }),
+    );
+    throwIfRunAborted();
 
-      return {
-        content: toTextResult(truncateText(result.content)),
-        details: result,
-      };
-    },
-  }) satisfies AgentTool<typeof readFileSchema, SandboxReadFileResult>;
+    return {
+      content: toTextResult(truncateText(result.content)),
+      details: result,
+    };
+  },
+});
 
 const createExecCommandTool = (
   sandbox: ResolvedSandboxAdapter,
   threadId: string,
   throwIfRunAborted: () => void,
-) =>
-  ({
-    label: "Exec Command",
-    name: "exec_command",
-    description: `Run a shell command in the ${sandbox.providerLabel} sandbox for the current thread.`,
-    parameters: execCommandSchema,
-    execute: async (_toolCallId, args) => {
-      throwIfRunAborted();
-      const result = await Effect.runPromise(
-        sandbox.executeCommand({
-          threadId,
-          command: args.command,
-          cwd: args.cwd,
-        }),
-      );
+) => ({
+  label: "Exec Command",
+  name: "exec_command",
+  description: `Run a shell command in the ${sandbox.providerLabel} sandbox for the current thread.`,
+  parameters: execCommandSchema,
+  execute: async (_toolCallId: string, args: Static<typeof execCommandSchema>) => {
+    throwIfRunAborted();
+    const result = await Effect.runPromise(
+      sandbox.executeCommand({
+        threadId,
+        command: args.command,
+        cwd: args.cwd,
+      }),
+    );
+    throwIfRunAborted();
+
+    return {
+      content: toTextResult(
+        truncateText(
+          [
+            `exit_code=${result.exitCode}`,
+            result.stdout ? `stdout:\n${result.stdout}` : "",
+            result.stderr ? `stderr:\n${result.stderr}` : "",
+            !result.stdout && !result.stderr && result.output ? `output:\n${result.output}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+        ),
+      ),
+      details: result,
+    };
+  },
+});
+
+const createSearchWebTool = (exa: ExaDef, throwIfRunAborted: () => void) => ({
+  label: "Search Web",
+  name: "searchWeb",
+  description:
+    "Find candidate web pages for a query. Returns metadata only so you can expand selected URLs later with getWebContent.",
+  parameters: searchWebSchema,
+  execute: async (_toolCallId: string, args: Static<typeof searchWebSchema>) => {
+    throwIfRunAborted();
+    try {
+      const result = await Effect.runPromise(exa.searchWeb(args));
       throwIfRunAborted();
 
       return {
-        content: toTextResult(
-          truncateText(
-            [
-              `exit_code=${result.exitCode}`,
-              result.stdout ? `stdout:\n${result.stdout}` : "",
-              result.stderr ? `stderr:\n${result.stderr}` : "",
-              !result.stdout && !result.stderr && result.output ? `output:\n${result.output}` : "",
-            ]
-              .filter(Boolean)
-              .join("\n\n"),
-          ),
-        ),
+        content: toTextResult(truncateText(JSON.stringify(result, null, 2))),
         details: result,
       };
-    },
-  }) satisfies AgentTool<typeof execCommandSchema, SandboxExecuteCommandResult>;
+    } catch (error) {
+      const result = {
+        error: error instanceof Error ? error.message : String(error),
+        query: args.query,
+        results: [] as [],
+        count: 0,
+      };
 
-const createSearchWebTool = (exa: ExaDef, throwIfRunAborted: () => void) =>
-  ({
-    label: "Search Web",
-    name: "searchWeb",
-    description:
-      "Find candidate web pages for a query. Returns metadata only so you can expand selected URLs later with getWebContent.",
-    parameters: searchWebSchema,
-    execute: async (_toolCallId, args) => {
+      return {
+        content: toTextResult(JSON.stringify(result, null, 2)),
+        details: result,
+      };
+    }
+  },
+});
+
+const createGetWebContentTool = (exa: ExaDef, throwIfRunAborted: () => void) => ({
+  label: "Get Web Content",
+  name: "getWebContent",
+  description:
+    "Expand one or more URLs into readable content. Use this after searchWeb or when the user already provided a specific URL. If you pass maxCharacters, it must be 6000 or less.",
+  parameters: getWebContentSchema,
+  execute: async (_toolCallId: string, args: Static<typeof getWebContentSchema>) => {
+    throwIfRunAborted();
+    try {
+      const result = await Effect.runPromise(exa.getWebContent(args));
       throwIfRunAborted();
-      try {
-        const result = await Effect.runPromise(exa.searchWeb(args));
-        throwIfRunAborted();
 
-        return {
-          content: toTextResult(truncateText(JSON.stringify(result, null, 2))),
-          details: result,
-        };
-      } catch (error) {
-        const result = {
-          error: error instanceof Error ? error.message : String(error),
-          query: args.query,
-          results: [] as [],
-          count: 0,
-        };
+      return {
+        content: toTextResult(truncateText(JSON.stringify(result, null, 2))),
+        details: result,
+      };
+    } catch (error) {
+      const result = {
+        error: error instanceof Error ? error.message : String(error),
+        urls: [...args.urls],
+        results: [] as [],
+      };
 
-        return {
-          content: toTextResult(JSON.stringify(result, null, 2)),
-          details: result,
-        };
-      }
-    },
-  }) satisfies AgentTool<
-    typeof searchWebSchema,
-    ExaSearchWebResult | { error: string; query: string; results: []; count: 0 }
-  >;
-
-const createGetWebContentTool = (exa: ExaDef, throwIfRunAborted: () => void) =>
-  ({
-    label: "Get Web Content",
-    name: "getWebContent",
-    description:
-      "Expand one or more URLs into readable content. Use this after searchWeb or when the user already provided a specific URL. If you pass maxCharacters, it must be 6000 or less.",
-    parameters: getWebContentSchema,
-    execute: async (_toolCallId, args) => {
-      throwIfRunAborted();
-      try {
-        const result = await Effect.runPromise(exa.getWebContent(args));
-        throwIfRunAborted();
-
-        return {
-          content: toTextResult(truncateText(JSON.stringify(result, null, 2))),
-          details: result,
-        };
-      } catch (error) {
-        const result = {
-          error: error instanceof Error ? error.message : String(error),
-          urls: [...args.urls],
-          results: [] as [],
-        };
-
-        return {
-          content: toTextResult(truncateText(JSON.stringify(result, null, 2))),
-          details: result,
-        };
-      }
-    },
-  }) satisfies AgentTool<
-    typeof getWebContentSchema,
-    ExaGetWebContentResult | { error: string; urls: string[]; results: [] }
-  >;
+      return {
+        content: toTextResult(truncateText(JSON.stringify(result, null, 2))),
+        details: result,
+      };
+    }
+  },
+});
 
 const createThreadContext = (
   sandbox: ResolvedSandboxAdapter,

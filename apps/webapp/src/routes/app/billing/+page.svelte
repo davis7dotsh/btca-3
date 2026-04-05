@@ -169,7 +169,7 @@
       </p>
       <h1 class="bc-title text-2xl">Usage and billing</h1>
       <p class="bc-muted max-w-2xl text-sm">
-        Free users get a lifetime usage allowance. Pro includes a monthly usage allowance.
+        Trial gives you a one-time usage allowance. Pro includes a monthly allowance.
       </p>
     </header>
 
@@ -209,11 +209,11 @@
         <p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">
           Current plan
         </p>
-        <h2 class="mt-3 text-2xl font-semibold">{isFreePlan ? "Free" : "Pro"}</h2>
+        <h2 class="mt-3 text-2xl font-semibold">{isFreePlan ? "Trial" : "Pro"}</h2>
         <p class="bc-muted mt-2 text-sm">
           {isFreePlan
-            ? "One lifetime usage wallet before upgrade is required."
-            : "Monthly usage wallet with hosted checkout and self-serve billing management."}
+            ? "A one-time allowance to evaluate btca on a real codebase."
+            : "A monthly allowance with hosted checkout and self-serve billing management."}
         </p>
 
         <div class="mt-6 flex flex-col gap-3">
@@ -249,7 +249,7 @@
         <div class="flex items-center justify-between gap-3">
           <div>
             <p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">
-              Free
+              Trial
             </p>
             <h2 class="mt-2 text-2xl font-semibold">Included</h2>
           </div>
@@ -263,7 +263,7 @@
         </div>
 
         <p class="bc-muted mt-4 text-sm">
-          Lifetime usage included before an upgrade is required.
+          A one-time allowance to try btca before upgrading.
         </p>
       </article>
 
@@ -287,7 +287,7 @@
         </div>
 
         <div class="mt-4 space-y-3 text-sm">
-          <p>Fresh usage allowance included every month</p>
+          <p>Fresh allowance included every month</p>
           <p class="bc-muted">Usage is metered from model tokens, Exa requests, and Box compute.</p>
           <p class="bc-muted">Hosted checkout and self-serve management portal are included.</p>
         </div>

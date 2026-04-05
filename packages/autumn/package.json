@@ -1,26 +1,20 @@
 {
   "name": "@btca/autumn",
   "version": "0.0.0",
-  "description": "Reusable Autumn + Convex component package for btca apps.",
+  "description": "Canonical Autumn billing config for btca apps.",
   "license": "MIT",
   "files": [
     "dist"
   ],
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
     "./config": "./src/config.ts",
-    "./convex.config.js": "./convex/convex.config.ts",
-    "./products": "./src/products.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public",
     "exports": {
-      ".": "./dist/src/index.mjs",
       "./config": "./dist/src/config.mjs",
-      "./convex.config.js": "./dist/convex/convex.config.mjs",
-      "./products": "./dist/src/products.mjs",
       "./package.json": "./package.json"
     }
   },
@@ -30,20 +24,13 @@
     "check": "vp check",
     "prepublishOnly": "vp run build"
   },
-  "dependencies": {
-    "@useautumn/convex": "catalog:",
-    "autumn-js": "catalog:"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "catalog:",
     "@typescript/native-preview": "7.0.0-dev.20260316.1",
     "atmn": "catalog:",
     "bumpp": "^11.0.1",
-    "convex": "^1.34.0",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
-  },
-  "peerDependencies": {
-    "convex": ">=1.25.0"
   }
 }

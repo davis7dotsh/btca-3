@@ -1,28 +1,40 @@
-import { AUTUMN_FREE_PLAN, AUTUMN_PRO_PLAN, AUTUMN_USAGE_FEATURE } from "@btca/autumn/config";
+import { AUTUMN_CONFIG } from "@btca/autumn/config";
+
+const usageFeature = AUTUMN_CONFIG.features.usage_usd;
+const freePlanConfig = AUTUMN_CONFIG.plans.free_plan;
+const proPlanConfig = AUTUMN_CONFIG.plans.btca_pro;
+const freePlanItems = freePlanConfig.items ?? [];
+const proPlanItems = proPlanConfig.items ?? [];
+
+const freePlanUsageUsd =
+  freePlanItems.find((item) => item.featureId === usageFeature.id)?.included ?? 0;
+
+const proPlanUsageUsd =
+  proPlanItems.find((item) => item.featureId === usageFeature.id)?.included ?? 0;
 
 export const FREE_BILLING_PLAN = {
-  id: AUTUMN_FREE_PLAN.id,
-  name: AUTUMN_FREE_PLAN.name,
-  priceUsd: AUTUMN_FREE_PLAN.priceUsd,
-  interval: AUTUMN_FREE_PLAN.interval,
+  id: freePlanConfig.id,
+  name: "Trial",
+  priceUsd: 0,
+  interval: "lifetime",
   limits: {
-    usageUsd: AUTUMN_FREE_PLAN.includedUsageUsd,
+    usageUsd: freePlanUsageUsd,
   },
 } as const;
 
 export const BILLING_PLAN = {
-  id: AUTUMN_PRO_PLAN.id,
-  name: AUTUMN_PRO_PLAN.name,
-  priceUsd: AUTUMN_PRO_PLAN.priceUsd,
-  interval: AUTUMN_PRO_PLAN.interval,
+  id: proPlanConfig.id,
+  name: "Pro",
+  priceUsd: proPlanConfig.price?.amount ?? 0,
+  interval: proPlanConfig.price?.interval ?? "month",
   model: "claude-haiku-4-5",
   limits: {
-    usageUsd: AUTUMN_PRO_PLAN.includedUsageUsd,
+    usageUsd: proPlanUsageUsd,
   },
 } as const;
 
 export const FEATURE_IDS = {
-  usageUsd: AUTUMN_USAGE_FEATURE.id,
+  usageUsd: usageFeature.id,
 } as const;
 
 export const SUPPORT_URL = "https://x.com/davis7";

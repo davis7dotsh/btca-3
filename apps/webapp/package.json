@@ -32,7 +32,7 @@
     "@opentelemetry/resources": "catalog:",
     "@opentelemetry/sdk-node": "catalog:",
     "@opentelemetry/semantic-conventions": "catalog:",
-    "@sinclair/typebox": "^0.34.48",
+    "@sinclair/typebox": "catalog:",
     "@tmcp/adapter-zod": "^0.1.7",
     "@tmcp/transport-http": "^0.8.5",
     "@uploadthing/svelte": "catalog:",

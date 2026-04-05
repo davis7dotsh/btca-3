@@ -1,8 +1,8 @@
 import type { ExaGetWebContentInput, ExaSearchWebInput } from "$lib/services/exa";
 
-import { AUTUMN_USAGE_FEATURE } from "@btca/autumn/config";
+import { AUTUMN_CONFIG } from "@btca/autumn/config";
 
-export const AUTUMN_USAGE_FEATURE_ID = AUTUMN_USAGE_FEATURE.id;
+export const AUTUMN_USAGE_FEATURE_ID = AUTUMN_CONFIG.features.usage_usd.id;
 
 export const EXA_SEARCH_RESULTS_THRESHOLD = 25;
 export const EXA_SEARCH_REQUEST_PRICE_USD = 5 / 1_000;

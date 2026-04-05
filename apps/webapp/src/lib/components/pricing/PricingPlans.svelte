@@ -68,17 +68,17 @@
 		<div class="bc-card bc-reveal p-8" style="--delay: 60ms">
 			<div class="flex items-baseline justify-between">
 				<div>
-					<p class="bc-muted text-sm font-medium">Free</p>
+					<p class="bc-muted text-sm font-medium">Trial</p>
 					<h3 class="mt-2 text-3xl font-semibold">$0</h3>
-					<p class="bc-muted text-xs">forever</p>
+					<p class="bc-muted text-xs">one-time</p>
 				</div>
-				<span class="bc-badge">Try btca</span>
+				<span class="bc-badge">Start here</span>
 			</div>
-			<p class="mt-4 text-sm font-medium">Try btca on a real codebase</p>
+			<p class="mt-4 text-sm font-medium">Try btca on a real codebase before you commit</p>
 			<ul class="mt-6 grid gap-3 text-sm">
 				<li class="flex items-start gap-3">
 					<Check size={18} class="mt-0.5 text-[hsl(var(--bc-success))]" />
-					<span>Limited messages to test the workflow</span>
+					<span>One-time trial allowance</span>
 				</li>
 				<li class="flex items-start gap-3">
 					<Check size={18} class="mt-0.5 text-[hsl(var(--bc-success))]" />
@@ -92,7 +92,7 @@
 			<div
 				class="bc-card mt-6 border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface-2))] p-4 text-xs"
 			>
-				Good for evaluating the product before you commit to a paid workflow.
+				Good for evaluating the workflow on a real repository without starting a subscription.
 			</div>
 		</div>
 
@@ -117,8 +117,8 @@
 			<div
 				class="bc-card mt-6 border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface-2))] p-4 text-xs"
 			>
-				Usage is measured across model tokens and sandbox compute. If you hit your monthly limit,
-				you can upgrade or wait for the next billing cycle.
+				Usage is measured across model tokens and sandbox compute, and your allowance refreshes
+				each month.
 			</div>
 			{#if errorMessage}
 				<p class="mt-4 text-xs text-red-500">{errorMessage}</p>
@@ -136,7 +136,7 @@
 						<Loader2 size={16} class="animate-spin" />
 						Starting checkout...
 					{:else if !isSignedIn}
-						Start with Free
+						Start Trial
 					{:else}
 						Upgrade to Pro
 					{/if}
