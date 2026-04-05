@@ -71,7 +71,54 @@ type WorkosUser = {
   lastName?: string | null;
   profilePictureUrl?: string | null;
   externalId?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
+
+const getLegacyClerkUserId = (user: WorkosUser) => {
+  if (typeof user.externalId === "string" && user.externalId.length > 0) {
+    return {
+      legacyClerkUserId: user.externalId,
+      source: "externalId" as const,
+    };
+  }
+
+  const metadataClerkUserId = user.metadata?.clerkUserId;
+
+  if (typeof metadataClerkUserId === "string" && metadataClerkUserId.length > 0) {
+    return {
+      legacyClerkUserId: metadataClerkUserId,
+      source: "metadata.clerkUserId" as const,
+    };
+  }
+
+  return {
+    legacyClerkUserId: null,
+    source: "none" as const,
+  };
+};
+
+const fetchFullWorkosUser = ({ workos, user }: { workos: WorkOS; user: WorkosUser }) =>
+  Effect.tryPromise({
+    try: async () => {
+      try {
+        return await workos.userManagement.getUser(user.id);
+      } catch (cause) {
+        createAuthError({
+          message: `Failed to load the full WorkOS profile for ${user.id}.`,
+          kind: "workos_get_user_error",
+          cause,
+        });
+
+        return user;
+      }
+    },
+    catch: (cause) =>
+      createAuthError({
+        message: `Unexpected failure while hydrating WorkOS user ${user.id}.`,
+        kind: "workos_get_user_unexpected_error",
+        cause,
+      }),
+  });
 
 const normalizeWorkosUser = (
   user: WorkosUser,
@@ -161,10 +208,14 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
 
       const resolveCanonicalIdentity = (user: WorkosUser) =>
         Effect.gen(function* () {
-          if (!user.externalId) {
+          const { legacyClerkUserId, source } = getLegacyClerkUserId(user);
+
+          if (!legacyClerkUserId) {
             return {
               canonicalUserId: user.id,
               legacyClerkUserId: null,
+              workosUserId: user.id,
+              legacyClerkUserIdSource: source,
             };
           }
 
@@ -172,13 +223,19 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
             .mutation({
               func: api.private.identityLinks.upsert,
               args: {
-                clerkUserId: user.externalId,
+                clerkUserId: legacyClerkUserId,
                 workosUserId: user.id,
                 primaryEmail: user.email ?? undefined,
-                migrationSource: "workos_external_id",
+                migrationSource: source === "externalId" ? "workos_external_id" : "manual",
                 status: "linked",
               },
             })
+            .pipe(
+              Effect.map((identity) => ({
+                ...identity,
+                legacyClerkUserIdSource: source,
+              })),
+            )
             .pipe(
               Effect.mapError((cause) =>
                 createAuthError({
@@ -207,10 +264,14 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
           });
 
           if (authentication.authenticated) {
-            const identity = yield* resolveCanonicalIdentity(authentication.user);
+            const fullUser = yield* fetchFullWorkosUser({
+              workos,
+              user: authentication.user,
+            });
+            const identity = yield* resolveCanonicalIdentity(fullUser);
 
             return normalizeWorkosUser(
-              authentication.user,
+              fullUser,
               authentication.accessToken,
               authentication.sessionId,
               identity.canonicalUserId,
@@ -255,10 +316,14 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
             );
           }
 
-          const identity = yield* resolveCanonicalIdentity(refresh.user);
+          const fullUser = yield* fetchFullWorkosUser({
+            workos,
+            user: refresh.user,
+          });
+          const identity = yield* resolveCanonicalIdentity(fullUser);
 
           return normalizeWorkosUser(
-            refresh.user,
+            fullUser,
             refresh.session.accessToken,
             refresh.sessionId,
             identity.canonicalUserId,
@@ -313,11 +378,15 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
             );
           }
 
-          const identity = yield* resolveCanonicalIdentity(authentication.user);
+          const fullUser = yield* fetchFullWorkosUser({
+            workos,
+            user: authentication.user,
+          });
+          const identity = yield* resolveCanonicalIdentity(fullUser);
 
           return {
             sealedSession: authentication.sealedSession,
-            user: mapUser(authentication.user, identity.canonicalUserId),
+            user: mapUser(fullUser, identity.canonicalUserId),
           };
         });
 

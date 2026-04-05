@@ -1,6 +1,6 @@
 ---
-title: 'MCP Server'
-description: 'Connect btca to Cursor, Claude Code, Codex, and other MCP-compatible tools'
+title: "MCP Server"
+description: "Connect btca to Cursor, Claude Code, Codex, and other MCP-compatible tools"
 ---
 
 [Get your MCP API key](https://btca.dev/app/settings?tab=mcp)
@@ -66,14 +66,14 @@ Cloud (HTTP) in `.cursor/mcp.json`:
 
 ```json
 {
-	"mcpServers": {
-		"server-name": {
-			"url": "https://btca.dev/api/mcp",
-			"headers": {
-				"Authorization": "Bearer ak..."
-			}
-		}
-	}
+  "mcpServers": {
+    "server-name": {
+      "url": "https://btca.dev/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ak..."
+      }
+    }
+  }
 }
 ```
 
@@ -83,12 +83,12 @@ Local (stdio) in `.cursor/mcp.json`:
 
 ```json
 {
-	"mcpServers": {
-		"btca-local": {
-			"command": "bunx",
-			"args": ["btca", "mcp"]
-		}
-	}
+  "mcpServers": {
+    "btca-local": {
+      "command": "bunx",
+      "args": ["btca", "mcp"]
+    }
+  }
 }
 ```
 
@@ -134,17 +134,17 @@ Cloud (HTTP) in `opencode.json`:
 
 ```json
 {
-	"$schema": "https://opencode.ai/config.json",
-	"mcp": {
-		"better-context": {
-			"type": "remote",
-			"url": "https://btca.dev/api/mcp",
-			"enabled": true,
-			"headers": {
-				"Authorization": "Bearer ak..."
-			}
-		}
-	}
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "better-context": {
+      "type": "remote",
+      "url": "https://btca.dev/api/mcp",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer ak..."
+      }
+    }
+  }
 }
 ```
 
@@ -154,13 +154,13 @@ Local (stdio) in `opencode.json`:
 
 ```json
 {
-	"$schema": "https://opencode.ai/config.json",
-	"mcp": {
-		"btca-local": {
-			"type": "local",
-			"command": ["bunx", "btca", "mcp"],
-			"enabled": true
-		}
-	}
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "btca-local": {
+      "type": "local",
+      "command": ["bunx", "btca", "mcp"],
+      "enabled": true
+    }
+  }
 }
 ```

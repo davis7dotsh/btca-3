@@ -182,6 +182,21 @@ export const getHttpErrorStatus = (error: unknown) => {
   return typeof status === "number" ? status : null;
 };
 
+export const getLegacyClerkUserIdFromWorkosUser = (user: {
+  externalId?: string | null;
+  metadata?: Record<string, unknown> | null;
+}) => {
+  if (typeof user.externalId === "string" && user.externalId.length > 0) {
+    return user.externalId;
+  }
+
+  const metadataClerkUserId = user.metadata?.clerkUserId;
+
+  return typeof metadataClerkUserId === "string" && metadataClerkUserId.length > 0
+    ? metadataClerkUserId
+    : null;
+};
+
 export const printUsageAndExit = (usage: string) => {
   console.log(usage);
   process.exit(0);

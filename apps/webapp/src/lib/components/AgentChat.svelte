@@ -3177,8 +3177,49 @@
 		}
 	}
 
+	const composerAutofocusKeyPattern = /^[a-z0-9]$/i;
+
+	function isTextEntryTarget(target: EventTarget | null) {
+		if (!(target instanceof HTMLElement)) {
+			return false;
+		}
+
+		if (
+			target instanceof HTMLInputElement ||
+			target instanceof HTMLTextAreaElement ||
+			target instanceof HTMLSelectElement ||
+			target.isContentEditable
+		) {
+			return true;
+		}
+
+		return target.closest('input, textarea, select, [contenteditable], [role="textbox"]') !== null;
+	}
+
+	async function focusComposerWithTypedKey(key: string) {
+		if (!composer || composer.disabled) {
+			return;
+		}
+
+		const selectionStart = composer.selectionStart ?? draft.length;
+		const selectionEnd = composer.selectionEnd ?? selectionStart;
+		const nextDraft = `${draft.slice(0, selectionStart)}${key}${draft.slice(selectionEnd)}`;
+		const nextCaretPosition = selectionStart + key.length;
+
+		draft = nextDraft;
+		await tick();
+
+		if (!composer || composer.disabled) {
+			return;
+		}
+
+		composer.focus();
+		composer.setSelectionRange(nextCaretPosition, nextCaretPosition);
+		updateMentionState();
+	}
+
 	function handleGlobalKeydown(event: KeyboardEvent) {
-		if (event.ctrlKey || event.metaKey || event.altKey) {
+		if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) {
 			return;
 		}
 
@@ -3187,15 +3228,24 @@
 			return;
 		}
 
-		if (document.activeElement && document.activeElement !== document.body) {
+		if (editPromptState !== null || spotlightAttachment !== null || modelPickerOpen) {
 			return;
 		}
 
-		if (event.key.length !== 1) {
+		if (!composerAutofocusKeyPattern.test(event.key)) {
 			return;
 		}
 
-		composer?.focus();
+		if (isTextEntryTarget(event.target) || isTextEntryTarget(document.activeElement)) {
+			return;
+		}
+
+		if (!composer || composer.disabled) {
+			return;
+		}
+
+		event.preventDefault();
+		void focusComposerWithTypedKey(event.key);
 	}
 
 	function handleGlobalPaste(event: ClipboardEvent) {

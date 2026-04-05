@@ -2,7 +2,10 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { customAction, customMutation, customQuery } from "convex-helpers/server/customFunctions";
 import { action, mutation, query } from "../_generated/server";
 
-const resolveAuthUser = async (ctx: Pick<QueryCtx | MutationCtx, "db">, workosUserId: string) => {
+export const resolveAuthUser = async (
+  ctx: Pick<QueryCtx | MutationCtx, "db">,
+  workosUserId: string,
+) => {
   const identityLink = await ctx.db
     .query("v2_identityLinks")
     .withIndex("by_workos_user_id", (indexQuery) => indexQuery.eq("workosUserId", workosUserId))
@@ -24,11 +27,13 @@ export const authedQuery = customQuery(query, {
       throw new Error("Unauthorized");
     }
 
+    const authUser = await resolveAuthUser(ctx, identity.subject);
+
     return {
       ctx: {
         ...ctx,
         identity,
-        authUser: await resolveAuthUser(ctx, identity.subject),
+        authUser,
       },
       args: {},
     };
@@ -44,11 +49,13 @@ export const authedMutation = customMutation(mutation, {
       throw new Error("Unauthorized");
     }
 
+    const authUser = await resolveAuthUser(ctx, identity.subject);
+
     return {
       ctx: {
         ...ctx,
         identity,
-        authUser: await resolveAuthUser(ctx, identity.subject),
+        authUser,
       },
       args: {},
     };
@@ -64,15 +71,17 @@ export const authedAction = customAction(action, {
       throw new Error("Unauthorized");
     }
 
+    const authUser = {
+      userId: identity.subject,
+      workosUserId: identity.subject,
+      legacyClerkUserId: null,
+    };
+
     return {
       ctx: {
         ...ctx,
         identity,
-        authUser: {
-          userId: identity.subject,
-          workosUserId: identity.subject,
-          legacyClerkUserId: null,
-        },
+        authUser,
       },
       args: {},
     };

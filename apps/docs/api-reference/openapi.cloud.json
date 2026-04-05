@@ -1,131 +1,131 @@
 {
-	"openapi": "3.1.0",
-	"info": {
-		"title": "btca Cloud API",
-		"version": "2.0.0",
-		"description": "HTTP API used by hosted MCP tools."
-	},
-	"servers": [
-		{
-			"url": "https://btca.dev"
-		}
-	],
-	"security": [
-		{
-			"bearerAuth": []
-		}
-	],
-	"paths": {
-		"/api/mcp": {
-			"post": {
-				"summary": "MCP JSON-RPC endpoint",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": { "$ref": "#/components/schemas/JsonRpcRequest" }
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Tool call response",
-						"content": {
-							"application/json": {
-								"schema": { "$ref": "#/components/schemas/McpToolCallResponse" }
-							}
-						}
-					},
-					"400": {
-						"description": "Bad request",
-						"content": {
-							"application/json": {
-								"schema": { "$ref": "#/components/schemas/CloudError" }
-							}
-						}
-					},
-					"401": {
-						"description": "Unauthorized",
-						"content": {
-							"application/json": {
-								"schema": { "$ref": "#/components/schemas/CloudError" }
-							}
-						}
-					}
-				}
-			}
-		}
-	},
-	"components": {
-		"schemas": {
-			"JsonRpcRequest": {
-				"type": "object",
-				"required": ["jsonrpc", "id", "method", "params"],
-				"properties": {
-					"jsonrpc": { "const": "2.0" },
-					"id": {
-						"oneOf": [{ "type": "integer" }, { "type": "string" }]
-					},
-					"method": { "type": "string" },
-					"params": { "$ref": "#/components/schemas/McpToolCallParams" }
-				}
-			},
-			"McpToolCallParams": {
-				"type": "object",
-				"required": ["name", "arguments"],
-				"properties": {
-					"name": { "type": "string" },
-					"arguments": {
-						"type": "object",
-						"additionalProperties": true
-					},
-					"project": { "type": "string" }
-				}
-			},
-			"McpContentItem": {
-				"type": "object",
-				"required": ["type", "text"],
-				"properties": {
-					"type": { "type": "string" },
-					"text": { "type": "string" }
-				}
-			},
-			"McpToolCallResult": {
-				"type": "object",
-				"required": ["content", "isError"],
-				"properties": {
-					"content": {
-						"type": "array",
-						"items": { "$ref": "#/components/schemas/McpContentItem" }
-					},
-					"isError": { "type": "boolean" }
-				}
-			},
-			"McpToolCallResponse": {
-				"type": "object",
-				"required": ["result"],
-				"properties": {
-					"result": { "$ref": "#/components/schemas/McpToolCallResult" }
-				}
-			},
-			"GenericObject": {
-				"type": "object",
-				"additionalProperties": true
-			},
-			"CloudError": {
-				"type": "object",
-				"required": ["error"],
-				"properties": {
-					"error": { "type": "string" },
-					"message": { "type": "string" }
-				}
-			}
-		},
-		"securitySchemes": {
-			"bearerAuth": {
-				"type": "http",
-				"scheme": "bearer"
-			}
-		}
-	}
+  "openapi": "3.1.0",
+  "info": {
+    "title": "btca Cloud API",
+    "version": "2.0.0",
+    "description": "HTTP API used by hosted MCP tools."
+  },
+  "servers": [
+    {
+      "url": "https://btca.dev"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/mcp": {
+      "post": {
+        "summary": "MCP JSON-RPC endpoint",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/JsonRpcRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tool call response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/McpToolCallResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CloudError" }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CloudError" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "JsonRpcRequest": {
+        "type": "object",
+        "required": ["jsonrpc", "id", "method", "params"],
+        "properties": {
+          "jsonrpc": { "const": "2.0" },
+          "id": {
+            "oneOf": [{ "type": "integer" }, { "type": "string" }]
+          },
+          "method": { "type": "string" },
+          "params": { "$ref": "#/components/schemas/McpToolCallParams" }
+        }
+      },
+      "McpToolCallParams": {
+        "type": "object",
+        "required": ["name", "arguments"],
+        "properties": {
+          "name": { "type": "string" },
+          "arguments": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "project": { "type": "string" }
+        }
+      },
+      "McpContentItem": {
+        "type": "object",
+        "required": ["type", "text"],
+        "properties": {
+          "type": { "type": "string" },
+          "text": { "type": "string" }
+        }
+      },
+      "McpToolCallResult": {
+        "type": "object",
+        "required": ["content", "isError"],
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/McpContentItem" }
+          },
+          "isError": { "type": "boolean" }
+        }
+      },
+      "McpToolCallResponse": {
+        "type": "object",
+        "required": ["result"],
+        "properties": {
+          "result": { "$ref": "#/components/schemas/McpToolCallResult" }
+        }
+      },
+      "GenericObject": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "CloudError": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
 }

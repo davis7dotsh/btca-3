@@ -2,6 +2,7 @@ import { Autumn } from "autumn-js";
 import { WorkOS } from "@workos-inc/node";
 import {
   defaultTimestamp,
+  getLegacyClerkUserIdFromWorkosUser,
   getStringArg,
   hasFlag,
   parseArgs,
@@ -76,12 +77,14 @@ const loadIdentityLinks = async (): Promise<{
     });
 
     for (const user of users.data) {
-      if (!user.externalId) {
+      const clerkUserId = getLegacyClerkUserIdFromWorkosUser(user);
+
+      if (!clerkUserId) {
         continue;
       }
 
       links.push({
-        clerkUserId: user.externalId,
+        clerkUserId,
         workosUserId: user.id,
         primaryEmail: user.email ?? null,
       });

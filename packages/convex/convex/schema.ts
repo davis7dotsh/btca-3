@@ -48,6 +48,40 @@ const resourceCuratorValidator = v.object({
   threadId: v.optional(v.string()),
 });
 
+const migrationRunKindValidator = v.union(
+  v.literal("legacy_convex_resources"),
+  v.literal("legacy_convex_threads"),
+  v.literal("legacy_convex_all"),
+);
+
+const migrationRunStatusValidator = v.union(
+  v.literal("running"),
+  v.literal("completed"),
+  v.literal("failed"),
+);
+
+const migrationAuditScopeValidator = v.union(
+  v.literal("resource"),
+  v.literal("resource_item"),
+  v.literal("thread"),
+  v.literal("message"),
+);
+
+const migrationAuditStatusValidator = v.union(
+  v.literal("imported"),
+  v.literal("skipped"),
+  v.literal("failed"),
+);
+
+const userMigrationKeyValidator = v.literal("legacy_convex_data");
+
+const userMigrationStatusValidator = v.union(
+  v.literal("not_started"),
+  v.literal("running"),
+  v.literal("completed"),
+  v.literal("failed"),
+);
+
 export default defineSchema({
   // Legacy production tables from better-context.
   // Keep these names unchanged so the existing production data remains intact and
@@ -234,6 +268,54 @@ export default defineSchema({
     .index("by_clerk_user_id", ["clerkUserId"])
     .index("by_workos_user_id", ["workosUserId"])
     .index("by_primary_email", ["primaryEmail"]),
+  v2_migrationRuns: defineTable({
+    userId: v.optional(v.string()),
+    kind: migrationRunKindValidator,
+    status: migrationRunStatusValidator,
+    dryRun: v.boolean(),
+    notes: v.optional(v.string()),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    processedResourceCount: v.number(),
+    processedResourceItemCount: v.number(),
+    processedThreadCount: v.number(),
+    processedMessageCount: v.number(),
+    skippedCount: v.number(),
+    errorCount: v.number(),
+  })
+    .index("by_kind_and_started_at", ["kind", "startedAt"])
+    .index("by_user_id_and_started_at", ["userId", "startedAt"]),
+  v2_userMigrations: defineTable({
+    userId: v.string(),
+    key: userMigrationKeyValidator,
+    status: userMigrationStatusValidator,
+    runId: v.optional(v.id("v2_migrationRuns")),
+    workflowId: v.optional(v.string()),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+    errorMessage: v.optional(v.string()),
+    resourcesCreated: v.number(),
+    resourcesReused: v.number(),
+    resourceItemsImported: v.number(),
+    threadsImported: v.number(),
+    messagesImported: v.number(),
+    syntheticMessagesAdded: v.number(),
+  }).index("by_user_id_and_key", ["userId", "key"]),
+  v2_migrationAudit: defineTable({
+    runId: v.id("v2_migrationRuns"),
+    scope: migrationAuditScopeValidator,
+    status: migrationAuditStatusValidator,
+    sourceTable: v.string(),
+    sourceId: v.string(),
+    sourceKey: v.string(),
+    targetTable: v.optional(v.string()),
+    targetId: v.optional(v.string()),
+    detail: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_run_id", ["runId"])
+    .index("by_scope_and_source_key", ["scope", "sourceKey"]),
   v2_agentThreads: defineTable({
     threadId: v.string(),
     userId: v.string(),

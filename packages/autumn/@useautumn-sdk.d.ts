@@ -3,11 +3,12 @@
 
 declare module '@useautumn/sdk' {
   // Features
-  export const sandbox_hours: Feature;
-  export const tokens_out: Feature;
   export const tokens_in: Feature;
   export const chat_messages: Feature;
   export const ai_budget: Feature;
+  export const sandbox_hours: Feature;
+  export const tokens_out: Feature;
+  export const usage_usd: Feature;
 
   // Plans
   export const free_plan: Plan;

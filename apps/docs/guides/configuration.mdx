@@ -1,6 +1,6 @@
 ---
-title: 'Configuration'
-description: 'Local config files, defaults, and validation limits'
+title: "Configuration"
+description: "Local config files, defaults, and validation limits"
 ---
 
 ## Local config: `btca.config.jsonc`
@@ -21,36 +21,36 @@ Example:
 
 ```jsonc
 {
-	"$schema": "https://btca.dev/btca.schema.json",
-	"provider": "opencode",
-	"model": "claude-haiku-4-5",
-	"maxSteps": 40,
-	"dataDirectory": ".btca",
-	"providerOptions": {
-		// OpenAI-compatible providers (e.g., LM Studio)
-		"openai-compat": {
-			// Base URL of your OpenAI-compatible server
-			"baseURL": "http://localhost:1234/v1",
-			// Provider name used by the AI SDK
-			"name": "lmstudio"
-		}
-	},
-	"resources": [
-		{
-			"type": "git",
-			"name": "svelte",
-			"url": "https://github.com/sveltejs/svelte.dev",
-			"branch": "main",
-			"searchPath": "apps/svelte.dev",
-			"specialNotes": "Focus on docs content"
-		},
-		{
-			"type": "npm",
-			"name": "reactNpm",
-			"package": "react",
-			"version": "latest"
-		}
-	]
+  "$schema": "https://btca.dev/btca.schema.json",
+  "provider": "opencode",
+  "model": "claude-haiku-4-5",
+  "maxSteps": 40,
+  "dataDirectory": ".btca",
+  "providerOptions": {
+    // OpenAI-compatible providers (e.g., LM Studio)
+    "openai-compat": {
+      // Base URL of your OpenAI-compatible server
+      "baseURL": "http://localhost:1234/v1",
+      // Provider name used by the AI SDK
+      "name": "lmstudio",
+    },
+  },
+  "resources": [
+    {
+      "type": "git",
+      "name": "svelte",
+      "url": "https://github.com/sveltejs/svelte.dev",
+      "branch": "main",
+      "searchPath": "apps/svelte.dev",
+      "specialNotes": "Focus on docs content",
+    },
+    {
+      "type": "npm",
+      "name": "reactNpm",
+      "package": "react",
+      "version": "latest",
+    },
+  ],
 }
 ```
 

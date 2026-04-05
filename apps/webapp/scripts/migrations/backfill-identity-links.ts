@@ -4,6 +4,7 @@ import { ConvexHttpClient } from "convex/browser";
 import {
   defaultTimestamp,
   getHttpErrorStatus,
+  getLegacyClerkUserIdFromWorkosUser,
   getStringArg,
   hasFlag,
   parseArgs,
@@ -78,12 +79,14 @@ const loadIdentityLinks = async (): Promise<{
     });
 
     for (const user of users.data) {
-      if (!user.externalId) {
+      const clerkUserId = getLegacyClerkUserIdFromWorkosUser(user);
+
+      if (!clerkUserId) {
         continue;
       }
 
       links.push({
-        clerkUserId: user.externalId,
+        clerkUserId,
         workosUserId: user.id,
         primaryEmail: user.email ?? null,
       });
@@ -133,7 +136,7 @@ const main = async () => {
         clerkUserId: link.clerkUserId,
         workosUserId: link.workosUserId,
         primaryEmail: link.primaryEmail ?? undefined,
-        migrationSource: "workos_external_id",
+        migrationSource: "manual",
         status: "linked",
       });
 

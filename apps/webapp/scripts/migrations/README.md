@@ -27,6 +27,12 @@ These are one-off utilities for the migration described in [MIGRATION.md](/Users
 - Renames WorkOS-keyed Autumn customers to the canonical Clerk ID when a matching identity link exists.
 - Skips safely if the customer is already canonical or if both IDs already exist in Autumn.
 
+`legacy-convex-import.ts`
+
+- Starts a Convex Workflow-based migration for legacy resources and legacy thread/message data.
+- Can run resources-only, threads-only, or both through one durable `migrate` workflow.
+- Can optionally wait and poll until the workflow completes, then write the final workflow status to a report file.
+
 ## Environment
 
 Export:
@@ -68,6 +74,12 @@ vp run @btca/webapp#migrate:workos:backfill-links -- --from=./tmp/clerk-export.w
 
 ```sh
 vp run @btca/webapp#migrate:autumn:reconcile -- --from=./tmp/clerk-export.workos-import.json --dry-run
+```
+
+5. Start the legacy Convex data migration workflow:
+
+```sh
+vp run @btca/webapp#migrate:convex:legacy -- --mode=all --wait
 ```
 
 ## Notes

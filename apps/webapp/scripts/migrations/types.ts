@@ -112,3 +112,42 @@ export interface AutumnReconciliationReport {
     message: string;
   }>;
 }
+
+export interface LegacyConvexMigrationInstanceResult {
+  instanceId: string;
+  clerkUserId: string;
+  resourcesCreated: number;
+  resourcesReused: number;
+  resourceItemsImported: number;
+  resourceItemsSkipped: number;
+  resourceItemErrors: number;
+  threadsImported: number;
+  threadsSkipped: number;
+  messagesImported: number;
+  messagesSkipped: number;
+  syntheticMessagesAdded: number;
+}
+
+export interface LegacyConvexMigrationReport {
+  generatedAt: string;
+  dryRun: boolean;
+  mode: "resources" | "threads" | "all";
+  runId: string | null;
+  instancesScanned: number;
+  resourcesCreated: number;
+  resourcesReused: number;
+  resourceItemsImported: number;
+  resourceItemsSkipped: number;
+  resourceItemErrors: number;
+  threadsImported: number;
+  threadsSkipped: number;
+  messagesImported: number;
+  messagesSkipped: number;
+  syntheticMessagesAdded: number;
+  instanceResults: LegacyConvexMigrationInstanceResult[];
+  errors: Array<{
+    scope: "instance" | "thread" | "run";
+    id: string;
+    message: string;
+  }>;
+}

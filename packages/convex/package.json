@@ -33,6 +33,7 @@
     "prepublishOnly": "vp run build"
   },
   "dependencies": {
+    "@convex-dev/workflow": "catalog:",
     "convex-helpers": "^0.1.114"
   },
   "devDependencies": {

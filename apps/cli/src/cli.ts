@@ -105,19 +105,12 @@ const LOCK_STALE_MS = 30_000;
 const LOCK_RETRY_DELAY_MS = 50;
 const LOCK_RETRY_ATTEMPTS = 200;
 const PROJECT_CONFIG_FILENAME = "btca.config.jsonc";
-const GLOBAL_CONFIG_PATH = path.join(
-  os.homedir(),
-  ".config",
-  "btca",
-  PROJECT_CONFIG_FILENAME,
-);
+const GLOBAL_CONFIG_PATH = path.join(os.homedir(), ".config", "btca", PROJECT_CONFIG_FILENAME);
 const REFERENCES_DIR = "references";
 
 const serverFlags = {
   debug: Cli.Flag.boolean("debug").pipe(
-    Cli.Flag.withDescription(
-      "Print embedded server logs and request debugging output.",
-    ),
+    Cli.Flag.withDescription("Print embedded server logs and request debugging output."),
   ),
   port: Cli.Flag.optional(
     Cli.Flag.integer("port").pipe(
@@ -137,23 +130,16 @@ const serverFlags = {
 
 const authFileTemplate = (): StoredAuthFile => ({});
 
-const serializeAuthFile = (value: StoredAuthFile) =>
-  `${JSON.stringify(value, null, 2)}\n`;
+const serializeAuthFile = (value: StoredAuthFile) => `${JSON.stringify(value, null, 2)}\n`;
 
-const parseStoredCredential = (
-  value: unknown,
-): StoredCredential | undefined => {
+const parseStoredCredential = (value: unknown): StoredCredential | undefined => {
   if (typeof value !== "object" || value === null) {
     return undefined;
   }
 
   const record = value as Record<string, unknown>;
 
-  if (
-    record.type === "api_key" &&
-    typeof record.key === "string" &&
-    record.key.trim().length > 0
-  ) {
+  if (record.type === "api_key" && typeof record.key === "string" && record.key.trim().length > 0) {
     return {
       type: "api_key",
       key: record.key.trim(),
@@ -171,8 +157,7 @@ const parseStoredCredential = (
       typeof record.metadata === "object" && record.metadata !== null
         ? Object.fromEntries(
             Object.entries(record.metadata).filter(
-              (entry): entry is [string, string] =>
-                typeof entry[1] === "string",
+              (entry): entry is [string, string] => typeof entry[1] === "string",
             ),
           )
         : undefined;
@@ -237,8 +222,7 @@ const parseAuthFile = (content: string): StoredAuthFile => {
   return authFileTemplate();
 };
 
-const sleep = (ms: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 const acquireAuthFileLock = async () => {
   for (let attempt = 0; attempt < LOCK_RETRY_ATTEMPTS; attempt += 1) {
@@ -246,14 +230,7 @@ const acquireAuthFileLock = async () => {
       await Fs.mkdir(AUTH_LOCK_DIRECTORY_PATH);
       return;
     } catch (cause) {
-      if (
-        !(
-          cause &&
-          typeof cause === "object" &&
-          "code" in cause &&
-          cause.code === "EEXIST"
-        )
-      ) {
+      if (!(cause && typeof cause === "object" && "code" in cause && cause.code === "EEXIST")) {
         throw cause;
       }
 
@@ -277,8 +254,7 @@ const acquireAuthFileLock = async () => {
   throw new Error("Timed out waiting for the BTCA auth file lock.");
 };
 
-const releaseAuthFileLock = () =>
-  Fs.rm(AUTH_LOCK_DIRECTORY_PATH, { recursive: true, force: true });
+const releaseAuthFileLock = () => Fs.rm(AUTH_LOCK_DIRECTORY_PATH, { recursive: true, force: true });
 
 const withAuthFileLock = <A>(fn: (current: StoredAuthFile) => Promise<A>) =>
   Effect.tryPromise({
@@ -291,25 +267,14 @@ const withAuthFileLock = <A>(fn: (current: StoredAuthFile) => Promise<A>) =>
       try {
         await Fs.access(AUTH_FILE_PATH);
       } catch (cause) {
-        if (
-          !(
-            cause &&
-            typeof cause === "object" &&
-            "code" in cause &&
-            cause.code === "ENOENT"
-          )
-        ) {
+        if (!(cause && typeof cause === "object" && "code" in cause && cause.code === "ENOENT")) {
           throw cause;
         }
 
-        await Fs.writeFile(
-          AUTH_FILE_PATH,
-          serializeAuthFile(authFileTemplate()),
-          {
-            encoding: "utf8",
-            mode: 0o600,
-          },
-        );
+        await Fs.writeFile(AUTH_FILE_PATH, serializeAuthFile(authFileTemplate()), {
+          encoding: "utf8",
+          mode: 0o600,
+        });
       }
 
       await acquireAuthFileLock();
@@ -330,10 +295,7 @@ const withAuthFileLock = <A>(fn: (current: StoredAuthFile) => Promise<A>) =>
       ),
   });
 
-const persistOAuthCredential = (
-  provider: AuthProviderId,
-  credentials: StoredOAuthCredential,
-) =>
+const persistOAuthCredential = (provider: AuthProviderId, credentials: StoredOAuthCredential) =>
   withAuthFileLock(async (current) => {
     const next: StoredAuthFile = {
       ...current,
@@ -363,11 +325,7 @@ const promptLine = (question: string) =>
       }
     },
     catch: (cause) =>
-      new Error(
-        cause instanceof Error
-          ? cause.message
-          : "Failed to read input from the terminal.",
-      ),
+      new Error(cause instanceof Error ? cause.message : "Failed to read input from the terminal."),
   });
 
 const promptSelection = <A>(
@@ -380,9 +338,7 @@ const promptSelection = <A>(
   Effect.gen(function* () {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       return yield* Effect.fail(
-        new Error(
-          "The connect and disconnect commands require an interactive terminal.",
-        ),
+        new Error("The connect and disconnect commands require an interactive terminal."),
       );
     }
 
@@ -434,9 +390,7 @@ const buildOAuthCallbacks = (): OAuthLoginCallbacks => ({
       console.log("");
     }),
   onPrompt: ({ message, placeholder }) =>
-    Effect.runPromise(
-      promptLine(`${message}${placeholder ? ` (${placeholder})` : ""} `),
-    ),
+    Effect.runPromise(promptLine(`${message}${placeholder ? ` (${placeholder})` : ""} `)),
   onProgress: (message) =>
     Promise.resolve().then(() => {
       console.log(message);
@@ -493,9 +447,7 @@ const getErrorMessages = (error: unknown) => {
       message &&
       !messages.some(
         (existing) =>
-          existing === message ||
-          existing.includes(message) ||
-          message.includes(existing),
+          existing === message || existing.includes(message) || message.includes(existing),
       )
     ) {
       messages.push(message);
@@ -563,11 +515,7 @@ const getErrorHint = (message: string) => {
     return "Use a package name like `react`, a versioned spec like `react@19`, or an npm URL.";
   }
 
-  if (
-    /^Resource ".*" already exists in the (default|global|local) config\.$/u.test(
-      message,
-    )
-  ) {
+  if (/^Resource ".*" already exists in the (default|global|local) config\.$/u.test(message)) {
     return "Use a different `--name`, or remove the existing resource with `btca remove` before adding it again.";
   }
 
@@ -587,9 +535,7 @@ const getErrorHint = (message: string) => {
     return "Use one of the supported types: `git`, `local`, or `npm`.";
   }
 
-  if (
-    message.startsWith('Remove resource requests require a non-empty "name".')
-  ) {
+  if (message.startsWith('Remove resource requests require a non-empty "name".')) {
     return "Pass the resource name to remove, or run `btca remove` without arguments to choose interactively.";
   }
 
@@ -605,10 +551,7 @@ const getErrorHint = (message: string) => {
     return "Built-in resources come from BTCA defaults. Leave it as-is, or override it by adding a different resource name.";
   }
 
-  if (
-    message ===
-    "The connect and disconnect commands require an interactive terminal."
-  ) {
+  if (message === "The connect and disconnect commands require an interactive terminal.") {
     return "Run the command from an interactive terminal, or pass a complete non-interactive setup path instead.";
   }
 
@@ -751,24 +694,17 @@ const parseNpmFromUrl = (reference: string) => {
 
   const hostname = parsed.hostname.toLowerCase();
 
-  if (
-    parsed.protocol !== "https:" ||
-    (hostname !== "npmjs.com" && hostname !== "www.npmjs.com")
-  ) {
+  if (parsed.protocol !== "https:" || (hostname !== "npmjs.com" && hostname !== "www.npmjs.com")) {
     return null;
   }
 
-  const segments = parsed.pathname
-    .split("/")
-    .filter((segment) => segment.length > 0);
+  const segments = parsed.pathname.split("/").filter((segment) => segment.length > 0);
 
   if (segments[0] !== "package") {
     return null;
   }
 
-  const packageParts = segments[1]?.startsWith("@")
-    ? segments.slice(1, 3)
-    : segments.slice(1, 2);
+  const packageParts = segments[1]?.startsWith("@") ? segments.slice(1, 3) : segments.slice(1, 2);
 
   if (packageParts.length === 0 || packageParts.some((part) => !part)) {
     return null;
@@ -860,16 +796,14 @@ const parseResourceInput = (args: {
       ? trimmedReference.slice("git:".length).trim()
       : trimmedReference;
     const normalizedUrl = normalizeGitHubUrl(gitReference);
-    const repoName =
-      parseGitHubUrl(normalizedUrl)?.repo ?? path.basename(normalizedUrl);
+    const repoName = parseGitHubUrl(normalizedUrl)?.repo ?? path.basename(normalizedUrl);
 
     return {
       type: "git",
       name: args.name?.trim() || repoName,
       url: normalizedUrl,
       branch: args.branch?.trim() || undefined,
-      searchPath:
-        args.searchPaths.length === 1 ? args.searchPaths[0] : undefined,
+      searchPath: args.searchPaths.length === 1 ? args.searchPaths[0] : undefined,
       searchPaths: args.searchPaths.length > 1 ? args.searchPaths : undefined,
       specialNotes: args.notes?.trim() || undefined,
       scope: args.scope,
@@ -894,9 +828,7 @@ const parseResourceInput = (args: {
   }
 
   const resolvedPath = path.resolve(
-    trimmedReference.startsWith("file:")
-      ? trimmedReference.slice(5)
-      : trimmedReference,
+    trimmedReference.startsWith("file:") ? trimmedReference.slice(5) : trimmedReference,
   );
 
   return {
@@ -943,14 +875,10 @@ const extractRepoName = (reference: string) => {
     (index, separator) => Math.max(index, normalized.lastIndexOf(separator)),
     -1,
   );
-  const repoName = (
-    splitIndex >= 0 ? normalized.slice(splitIndex + 1) : normalized
-  ).trim();
+  const repoName = (splitIndex >= 0 ? normalized.slice(splitIndex + 1) : normalized).trim();
 
   if (!repoName || repoName === "." || repoName === "..") {
-    throw new Error(
-      `Could not determine repository name from reference: ${reference}`,
-    );
+    throw new Error(`Could not determine repository name from reference: ${reference}`);
   }
 
   return repoName;
@@ -999,8 +927,7 @@ const ensureReferencesExclude = async (cwd: string, referencesDir: string) => {
     .replace(/\\/g, "/")
     .replace(/^\.\/?/, "")
     .replace(/\/+$/, "");
-  const excludePattern =
-    relative.length > 0 ? `${relative}/` : `${REFERENCES_DIR}/`;
+  const excludePattern = relative.length > 0 ? `${relative}/` : `${REFERENCES_DIR}/`;
 
   let existing = "";
 
@@ -1011,18 +938,9 @@ const ensureReferencesExclude = async (cwd: string, referencesDir: string) => {
   }
 
   const lines = existing.split("\n").map((line) => line.trim());
-  const patterns = [
-    excludePattern.replace(/\/$/, ""),
-    excludePattern,
-    `${excludePattern}*`,
-  ];
+  const patterns = [excludePattern.replace(/\/$/, ""), excludePattern, `${excludePattern}*`];
 
-  if (
-    lines.some(
-      (line) =>
-        line.length > 0 && !line.startsWith("#") && patterns.includes(line),
-    )
-  ) {
+  if (lines.some((line) => line.length > 0 && !line.startsWith("#") && patterns.includes(line))) {
     return {
       kind: "already-excluded" as const,
       pattern: excludePattern,
@@ -1030,11 +948,7 @@ const ensureReferencesExclude = async (cwd: string, referencesDir: string) => {
   }
 
   const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-  await Fs.writeFile(
-    excludePath,
-    `${existing}${prefix}${excludePattern}\n`,
-    "utf8",
-  );
+  await Fs.writeFile(excludePath, `${existing}${prefix}${excludePattern}\n`, "utf8");
 
   return {
     kind: "added-exclude" as const,
@@ -1058,8 +972,7 @@ const cloneReference = (repo: string, destination: string) =>
           }
         });
       }),
-    catch: (cause) =>
-      cause instanceof Error ? cause : new Error(String(cause)),
+    catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
   });
 
 const readConfigFile = (configPath: string) =>
@@ -1069,28 +982,20 @@ const readConfigFile = (configPath: string) =>
         const content = await Fs.readFile(configPath, "utf8");
         return parseJsonc(content) as StoredCliConfig;
       } catch (cause) {
-        if (
-          cause &&
-          typeof cause === "object" &&
-          "code" in cause &&
-          cause.code === "ENOENT"
-        ) {
+        if (cause && typeof cause === "object" && "code" in cause && cause.code === "ENOENT") {
           return null;
         }
 
         throw cause;
       }
     },
-    catch: (cause) =>
-      cause instanceof Error ? cause : new Error(String(cause)),
+    catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
   });
 
 const listResourceNames = (config: StoredCliConfig | null) =>
   Array.isArray(config?.resources)
     ? config.resources.flatMap((resource) =>
-        resource &&
-        typeof resource === "object" &&
-        typeof resource.name === "string"
+        resource && typeof resource === "object" && typeof resource.name === "string"
           ? [resource.name]
           : [],
       )
@@ -1117,12 +1022,7 @@ const removeWipeTarget = (target: string) =>
       try {
         await Fs.access(target);
       } catch (cause) {
-        if (
-          cause &&
-          typeof cause === "object" &&
-          "code" in cause &&
-          cause.code === "ENOENT"
-        ) {
+        if (cause && typeof cause === "object" && "code" in cause && cause.code === "ENOENT") {
           return {
             kind: "missing" as const,
             target,
@@ -1146,29 +1046,20 @@ const removeWipeTarget = (target: string) =>
         };
       }
     },
-    catch: (cause) =>
-      cause instanceof Error ? cause : new Error(String(cause)),
+    catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
   });
 
-const confirmWipe = (
-  targets: readonly { readonly target: string; readonly source: string }[],
-) =>
+const confirmWipe = (targets: readonly { readonly target: string; readonly source: string }[]) =>
   Effect.gen(function* () {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       return yield* Effect.fail(
-        new Error(
-          "Refusing to run wipe in non-interactive mode without --yes.",
-        ),
+        new Error("Refusing to run wipe in non-interactive mode without --yes."),
       );
     }
 
     yield* Console.log("");
-    yield* Console.log(
-      "WARNING: this will permanently delete BTCA config files.",
-    );
-    yield* Console.log(
-      "Only current-directory and global BTCA config files will be removed.",
-    );
+    yield* Console.log("WARNING: this will permanently delete BTCA config files.");
+    yield* Console.log("Only current-directory and global BTCA config files will be removed.");
     yield* Console.log("");
     yield* Console.log("Targets:");
 
@@ -1265,9 +1156,7 @@ const wipe = Cli.Command.make(
         }
       }),
     }),
-).pipe(
-  Cli.Command.withDescription("Delete local and global BTCA config files."),
-);
+).pipe(Cli.Command.withDescription("Delete local and global BTCA config files."));
 
 const trackServerModelContext = (server: {
   readonly getConfig: () => Effect.Effect<
@@ -1324,11 +1213,7 @@ const connect = Cli.Command.make("connect", {}, () =>
       ).pipe(
         Effect.mapError(
           (cause) =>
-            new Error(
-              cause instanceof Error
-                ? cause.message
-                : "Failed to choose a provider.",
-            ),
+            new Error(cause instanceof Error ? cause.message : "Failed to choose a provider."),
         ),
       );
       const providerState = auth.providers[selectedProvider];
@@ -1343,9 +1228,7 @@ const connect = Cli.Command.make("connect", {}, () =>
       const oauthProvider = getOAuthProvider(selectedProvider);
 
       if (!oauthProvider) {
-        return yield* Effect.fail(
-          new Error(`OAuth is not available for ${providerState.label}.`),
-        );
+        return yield* Effect.fail(new Error(`OAuth is not available for ${providerState.label}.`));
       }
 
       const credentials = yield* Effect.tryPromise({
@@ -1371,10 +1254,7 @@ const connect = Cli.Command.make("connect", {}, () =>
         access: credentials.access,
         refresh: credentials.refresh,
         expires: credentials.expires,
-        metadata:
-          metadataEntries.length > 0
-            ? Object.fromEntries(metadataEntries)
-            : undefined,
+        metadata: metadataEntries.length > 0 ? Object.fromEntries(metadataEntries) : undefined,
       });
 
       const refreshedAuth = yield* server.getAuthState();
@@ -1390,11 +1270,7 @@ const connect = Cli.Command.make("connect", {}, () =>
       yield* Console.log(`Connected ${providerState.label}.`);
     }),
   }),
-).pipe(
-  Cli.Command.withDescription(
-    "Connect an AI provider and store credentials in auth.json.",
-  ),
-);
+).pipe(Cli.Command.withDescription("Connect an AI provider and store credentials in auth.json."));
 
 const disconnect = Cli.Command.make("disconnect", {}, () =>
   runTrackedEffectCommand({
@@ -1409,9 +1285,7 @@ const disconnect = Cli.Command.make("disconnect", {}, () =>
       );
 
       if (connectedProviders.length === 0) {
-        yield* Console.log(
-          "No providers are currently connected through auth.json.",
-        );
+        yield* Console.log("No providers are currently connected through auth.json.");
         return;
       }
 
@@ -1424,24 +1298,16 @@ const disconnect = Cli.Command.make("disconnect", {}, () =>
       ).pipe(
         Effect.mapError(
           (cause) =>
-            new Error(
-              cause instanceof Error
-                ? cause.message
-                : "Failed to choose a provider.",
-            ),
+            new Error(cause instanceof Error ? cause.message : "Failed to choose a provider."),
         ),
       );
 
       yield* server.logout(selectedProvider);
-      yield* Console.log(
-        `Disconnected ${auth.providers[selectedProvider].label}.`,
-      );
+      yield* Console.log(`Disconnected ${auth.providers[selectedProvider].label}.`);
     }),
   }),
 ).pipe(
-  Cli.Command.withDescription(
-    "Disconnect a provider by removing its stored auth.json credential.",
-  ),
+  Cli.Command.withDescription("Disconnect a provider by removing its stored auth.json credential."),
 );
 
 const btca = Cli.Command.make("btca").pipe(
@@ -1456,11 +1322,7 @@ const serve = Cli.Command.make("serve", {}, () =>
     yield* Console.log(server.baseUrl);
     return yield* Effect.never;
   }),
-).pipe(
-  Cli.Command.withDescription(
-    "Start the local BTCA HTTP server and keep it running.",
-  ),
-);
+).pipe(Cli.Command.withDescription("Start the local BTCA HTTP server and keep it running."));
 
 const tui = Cli.Command.make("tui", {}, () =>
   runTrackedEffectCommand({
@@ -1468,14 +1330,10 @@ const tui = Cli.Command.make("tui", {}, () =>
     mode: "tui",
     action: launchTui({ version }),
   }),
-).pipe(
-  Cli.Command.withDescription("Launch the btca OpenTUI terminal interface."),
-);
+).pipe(Cli.Command.withDescription("Launch the btca OpenTUI terminal interface."));
 
 const mcpLocal = Cli.Command.make("local", {}, () => runMcpLocalSetup).pipe(
-  Cli.Command.withDescription(
-    "Print copy-paste local MCP setup for a supported harness.",
-  ),
+  Cli.Command.withDescription("Print copy-paste local MCP setup for a supported harness."),
 );
 
 const mcp = Cli.Command.make("mcp", {}, () => runMcpServer).pipe(
@@ -1490,37 +1348,25 @@ const add = Cli.Command.make(
       Cli.Flag.withDescription("Git URL, local path, or npm reference to add."),
     ),
     name: Cli.Flag.optional(
-      Cli.Flag.string("name").pipe(
-        Cli.Flag.withDescription("Override the resource name."),
-      ),
+      Cli.Flag.string("name").pipe(Cli.Flag.withDescription("Override the resource name.")),
     ),
     type: Cli.Flag.optional(
       Cli.Flag.string("type").pipe(
-        Cli.Flag.withDescription(
-          'Resource type override: "git", "local", or "npm".',
-        ),
+        Cli.Flag.withDescription('Resource type override: "git", "local", or "npm".'),
       ),
     ),
     branch: Cli.Flag.optional(
-      Cli.Flag.string("branch").pipe(
-        Cli.Flag.withDescription("Git branch to pin."),
-      ),
+      Cli.Flag.string("branch").pipe(Cli.Flag.withDescription("Git branch to pin.")),
     ),
     searchPaths: Cli.Flag.string("search-path").pipe(
       Cli.Flag.atLeast(0),
-      Cli.Flag.withDescription(
-        "Optional git subdirectory to focus on. Repeat for multiple.",
-      ),
+      Cli.Flag.withDescription("Optional git subdirectory to focus on. Repeat for multiple."),
     ),
     notes: Cli.Flag.optional(
-      Cli.Flag.string("notes").pipe(
-        Cli.Flag.withDescription("Optional notes for the resource."),
-      ),
+      Cli.Flag.string("notes").pipe(Cli.Flag.withDescription("Optional notes for the resource.")),
     ),
     global: Cli.Flag.boolean("global").pipe(
-      Cli.Flag.withDescription(
-        "Save this resource in the global config instead of the local one.",
-      ),
+      Cli.Flag.withDescription("Save this resource in the global config instead of the local one."),
     ),
   },
   ({ reference, name, type, branch, searchPaths, notes, global }) =>
@@ -1548,11 +1394,7 @@ const add = Cli.Command.make(
         yield* Console.log(`Added resource: ${resource.name}`);
       }),
     }),
-).pipe(
-  Cli.Command.withDescription(
-    "Add a git, local, or npm resource to BTCA config.",
-  ),
-);
+).pipe(Cli.Command.withDescription("Add a git, local, or npm resource to BTCA config."));
 
 const resources = Cli.Command.make("resources", {}, () =>
   runTrackedEffectCommand({
@@ -1578,9 +1420,7 @@ const resources = Cli.Command.make("resources", {}, () =>
             yield* Console.log(`  Branch: ${resource.branch}`);
           }
           if (resource.searchPaths && resource.searchPaths.length > 0) {
-            yield* Console.log(
-              `  Search Paths: ${resource.searchPaths.join(", ")}`,
-            );
+            yield* Console.log(`  Search Paths: ${resource.searchPaths.join(", ")}`);
           } else if (resource.searchPath) {
             yield* Console.log(`  Search Path: ${resource.searchPath}`);
           }
@@ -1604,9 +1444,7 @@ const remove = Cli.Command.make(
   "remove",
   {
     name: Cli.Flag.optional(
-      Cli.Flag.string("name").pipe(
-        Cli.Flag.withDescription("Resource name to remove."),
-      ),
+      Cli.Flag.string("name").pipe(Cli.Flag.withDescription("Resource name to remove.")),
     ),
   },
   ({ name }) =>
@@ -1640,9 +1478,7 @@ const remove = Cli.Command.make(
 const reference = Cli.Command.make(
   "reference",
   {
-    repo: Cli.Flag.string("repo").pipe(
-      Cli.Flag.withDescription("Repository URL to clone."),
-    ),
+    repo: Cli.Flag.string("repo").pipe(Cli.Flag.withDescription("Repository URL to clone.")),
   },
   ({ repo }) =>
     runTrackedEffectCommand({
@@ -1666,8 +1502,7 @@ const reference = Cli.Command.make(
               return false;
             }
           },
-          catch: (cause) =>
-            cause instanceof Error ? cause : new Error(String(cause)),
+          catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
         });
 
         if (exists) {
@@ -1678,14 +1513,12 @@ const reference = Cli.Command.make(
 
         yield* Effect.tryPromise({
           try: () => Fs.mkdir(referencesDir, { recursive: true }),
-          catch: (cause) =>
-            cause instanceof Error ? cause : new Error(String(cause)),
+          catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
         });
 
         const excludeStatus = yield* Effect.tryPromise({
           try: () => ensureReferencesExclude(cwd, referencesDir),
-          catch: (cause) =>
-            cause instanceof Error ? cause : new Error(String(cause)),
+          catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
         });
 
         yield* Console.log(`Cloning ${repo} into ${destination}...`);
@@ -1693,13 +1526,9 @@ const reference = Cli.Command.make(
         yield* Console.log(`Reference cloned: ${destination}`);
 
         if (excludeStatus.kind === "added-exclude") {
-          yield* Console.log(
-            `Added '${excludeStatus.pattern}' to .git/info/exclude`,
-          );
+          yield* Console.log(`Added '${excludeStatus.pattern}' to .git/info/exclude`);
         } else if (excludeStatus.kind === "already-excluded") {
-          yield* Console.log(
-            `'${excludeStatus.pattern}' is already present in .git/info/exclude`,
-          );
+          yield* Console.log(`'${excludeStatus.pattern}' is already present in .git/info/exclude`);
         } else {
           yield* Console.log(
             "Warning: current directory is not a git repository, so .git/info/exclude was not updated.",
@@ -1708,9 +1537,7 @@ const reference = Cli.Command.make(
       }),
     }),
 ).pipe(
-  Cli.Command.withDescription(
-    "Clone a repository into ./references for local reference use.",
-  ),
+  Cli.Command.withDescription("Clone a repository into ./references for local reference use."),
 );
 
 const status = Cli.Command.make("status", {}, () =>
@@ -1719,31 +1546,25 @@ const status = Cli.Command.make("status", {}, () =>
     mode: "status",
     action: Effect.gen(function* () {
       const server = yield* Server;
-      const [configResponse, auth, globalConfig, projectConfig] =
-        yield* Effect.all([
-          server.getConfig(),
-          server.getAuthState(),
-          readConfigFile(GLOBAL_CONFIG_PATH),
-          readConfigFile(path.join(process.cwd(), PROJECT_CONFIG_FILENAME)),
-        ]);
+      const [configResponse, auth, globalConfig, projectConfig] = yield* Effect.all([
+        server.getConfig(),
+        server.getAuthState(),
+        readConfigFile(GLOBAL_CONFIG_PATH),
+        readConfigFile(path.join(process.cwd(), PROJECT_CONFIG_FILENAME)),
+      ]);
 
-      const activeProvider =
-        auth.providers[configResponse.model.provider as AuthProviderId];
+      const activeProvider = auth.providers[configResponse.model.provider as AuthProviderId];
 
       yield* Console.log("BTCA status");
       yield* Console.log(`- Model: ${configResponse.model.model}`);
       yield* Console.log(
         `- Provider: ${configResponse.model.provider} (${configResponse.model.scope})`,
       );
-      yield* Console.log(
-        `- Data directory: ${configResponse.config.dataDirectory}`,
-      );
+      yield* Console.log(`- Data directory: ${configResponse.config.dataDirectory}`);
       yield* Console.log(
         `- Loaded config paths: ${configResponse.config.loadedConfigPaths.join(", ") || "none"}`,
       );
-      yield* Console.log(
-        `- Resource count: ${configResponse.config.resources.length}`,
-      );
+      yield* Console.log(`- Resource count: ${configResponse.config.resources.length}`);
 
       if (activeProvider) {
         yield* Console.log(
@@ -1762,9 +1583,7 @@ const status = Cli.Command.make("status", {}, () =>
       );
     }),
   }),
-).pipe(
-  Cli.Command.withDescription("Print current BTCA config and resource status."),
-);
+).pipe(Cli.Command.withDescription("Print current BTCA config and resource status."));
 
 const telemetry = Cli.Command.make("telemetry").pipe(
   Cli.Command.withSubcommands([
@@ -1828,18 +1647,12 @@ const formatToolArgs = (value: unknown) => {
 };
 
 const formatStart = (payload: Record<string, unknown>) => {
-  const provider =
-    typeof payload.provider === "string" ? payload.provider : "unknown";
-  const modelId =
-    typeof payload.modelId === "string" ? payload.modelId : "unknown";
-  const threadId =
-    typeof payload.threadId === "string" ? payload.threadId : "unknown";
-  const workspaceDir =
-    typeof payload.workspaceDir === "string" ? payload.workspaceDir : "unknown";
+  const provider = typeof payload.provider === "string" ? payload.provider : "unknown";
+  const modelId = typeof payload.modelId === "string" ? payload.modelId : "unknown";
+  const threadId = typeof payload.threadId === "string" ? payload.threadId : "unknown";
+  const workspaceDir = typeof payload.workspaceDir === "string" ? payload.workspaceDir : "unknown";
   const resourceNames = Array.isArray(payload.resourceNames)
-    ? payload.resourceNames.filter(
-        (value): value is string => typeof value === "string",
-      )
+    ? payload.resourceNames.filter((value): value is string => typeof value === "string")
     : [];
 
   return [
@@ -1859,18 +1672,11 @@ const formatRunMetrics = (value: unknown) => {
 
   const record = value as Record<string, unknown>;
   const priceUsd = typeof record.priceUsd === "number" ? record.priceUsd : null;
-  const totalToolCalls =
-    typeof record.totalToolCalls === "number" ? record.totalToolCalls : null;
+  const totalToolCalls = typeof record.totalToolCalls === "number" ? record.totalToolCalls : null;
   const outputTokensPerSecond =
-    typeof record.outputTokensPerSecond === "number"
-      ? record.outputTokensPerSecond
-      : null;
+    typeof record.outputTokensPerSecond === "number" ? record.outputTokensPerSecond : null;
 
-  if (
-    priceUsd === null &&
-    totalToolCalls === null &&
-    outputTokensPerSecond === null
-  ) {
+  if (priceUsd === null && totalToolCalls === null && outputTokensPerSecond === null) {
     return null;
   }
 
@@ -1884,9 +1690,7 @@ const formatRunMetrics = (value: unknown) => {
 
 const summarizeResources = (payload: Record<string, unknown>) => {
   const resourceNames = Array.isArray(payload.resourceNames)
-    ? payload.resourceNames.filter(
-        (value): value is string => typeof value === "string",
-      )
+    ? payload.resourceNames.filter((value): value is string => typeof value === "string")
     : [];
 
   if (resourceNames.length === 0) {
@@ -1971,9 +1775,7 @@ const printAskStream = ({
       const printTool = (label: string, args: unknown) => {
         ensureTrailingBreak();
         const renderedArgs = formatToolArgs(args);
-        process.stdout.write(
-          renderedArgs.length > 0 ? `${label} ${renderedArgs}\n` : `${label}\n`,
-        );
+        process.stdout.write(renderedArgs.length > 0 ? `${label} ${renderedArgs}\n` : `${label}\n`);
       };
 
       const setCompactStatus = (nextStatus: string) => {
@@ -1989,13 +1791,9 @@ const printAskStream = ({
         if (eventName === "start" && data && typeof data === "object") {
           ensureTrailingBreak();
           if (debug) {
-            process.stdout.write(
-              `${formatStart(data as Record<string, unknown>)}`,
-            );
+            process.stdout.write(`${formatStart(data as Record<string, unknown>)}`);
           } else {
-            setCompactStatus(
-              `Loading ${summarizeResources(data as Record<string, unknown>)}`,
-            );
+            setCompactStatus(`Loading ${summarizeResources(data as Record<string, unknown>)}`);
           }
           return;
         }
@@ -2028,19 +1826,13 @@ const printAskStream = ({
 
         const outerEvent = data.event;
 
-        if (
-          !outerEvent ||
-          typeof outerEvent !== "object" ||
-          !("type" in outerEvent)
-        ) {
+        if (!outerEvent || typeof outerEvent !== "object" || !("type" in outerEvent)) {
           return;
         }
 
         if (outerEvent.type === "message_update") {
           const assistantMessageEvent =
-            "assistantMessageEvent" in outerEvent
-              ? outerEvent.assistantMessageEvent
-              : null;
+            "assistantMessageEvent" in outerEvent ? outerEvent.assistantMessageEvent : null;
 
           if (
             assistantMessageEvent &&
@@ -2049,8 +1841,7 @@ const printAskStream = ({
           ) {
             if (assistantMessageEvent.type === "text_delta") {
               const delta =
-                "delta" in assistantMessageEvent &&
-                typeof assistantMessageEvent.delta === "string"
+                "delta" in assistantMessageEvent && typeof assistantMessageEvent.delta === "string"
                   ? assistantMessageEvent.delta
                   : "";
 
@@ -2070,17 +1861,10 @@ const printAskStream = ({
 
             if (assistantMessageEvent.type === "toolcall_end") {
               const toolCall =
-                "toolCall" in assistantMessageEvent
-                  ? assistantMessageEvent.toolCall
-                  : null;
+                "toolCall" in assistantMessageEvent ? assistantMessageEvent.toolCall : null;
 
-              if (
-                toolCall &&
-                typeof toolCall === "object" &&
-                "name" in toolCall
-              ) {
-                const name =
-                  typeof toolCall.name === "string" ? toolCall.name : "tool";
+              if (toolCall && typeof toolCall === "object" && "name" in toolCall) {
+                const name = typeof toolCall.name === "string" ? toolCall.name : "tool";
                 const args =
                   "arguments" in toolCall && toolCall.arguments !== null
                     ? toolCall.arguments
@@ -2107,8 +1891,7 @@ const printAskStream = ({
               message.stopReason === "error"
             ) {
               const errorMessage =
-                "errorMessage" in message &&
-                typeof message.errorMessage === "string"
+                "errorMessage" in message && typeof message.errorMessage === "string"
                   ? message.errorMessage
                   : "The model request failed.";
 
@@ -2129,9 +1912,7 @@ const printAskStream = ({
 
         if (outerEvent.type === "agent_end") {
           const metrics =
-            "runMetrics" in outerEvent
-              ? formatRunMetrics(outerEvent.runMetrics)
-              : null;
+            "runMetrics" in outerEvent ? formatRunMetrics(outerEvent.runMetrics) : null;
 
           if (metrics && debug) {
             ensureTrailingBreak();
@@ -2175,9 +1956,7 @@ const printAskStream = ({
     },
     catch: (cause) =>
       new Error(
-        cause instanceof Error
-          ? cause.message
-          : "Failed to print the /ask response stream.",
+        cause instanceof Error ? cause.message : "Failed to print the /ask response stream.",
       ),
   });
 
@@ -2239,12 +2018,8 @@ const app = btca.pipe(
     telemetry,
     wipe,
   ]),
-  Cli.Command.provideEffect(Telemetry, () =>
-    Telemetry.make({ cliVersion: version }),
-  ),
-  Cli.Command.provideEffect(Server, ({ port, url, debug }) =>
-    Server.make({ port, url, debug }),
-  ),
+  Cli.Command.provideEffect(Telemetry, () => Telemetry.make({ cliVersion: version })),
+  Cli.Command.provideEffect(Server, ({ port, url, debug }) => Server.make({ port, url, debug })),
 );
 
 const program = Effect.scoped(

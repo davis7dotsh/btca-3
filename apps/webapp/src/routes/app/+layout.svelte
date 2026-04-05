@@ -4,6 +4,7 @@
 	import ConvexWrapper from '$lib/wrappers/ConvexWrapper.svelte';
 	import AppSidebar from '$lib/components/AppSidebar.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
+	import LegacyMigrationBanner from '$lib/components/LegacyMigrationBanner.svelte';
 	import { resolve } from '$app/paths';
 	import { setAuthContext } from '$lib/stores/auth.svelte';
 	import { page } from '$app/state';
@@ -107,6 +108,7 @@
 			{/if}
 
 			<main class="bc-page-enter relative flex min-h-0 flex-1 flex-col">
+				<LegacyMigrationBanner />
 				{@render children()}
 			</main>
 		</div>

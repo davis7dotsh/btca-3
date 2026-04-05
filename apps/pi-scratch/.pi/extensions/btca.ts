@@ -54,8 +54,7 @@ The first thing you should do is cd into the workspace root if you're not alread
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("copy-all", {
-    description:
-      "Copy all user messages and assistant text responses to the clipboard",
+    description: "Copy all user messages and assistant text responses to the clipboard",
     handler: async (_args, ctx) => {
       const sections: string[] = [];
 
@@ -122,8 +121,7 @@ export default function (pi: ExtensionAPI) {
         let totalCost = 0;
 
         for (const entry of ctx.sessionManager.getBranch()) {
-          if (entry.type !== "message" || entry.message.role !== "assistant")
-            continue;
+          if (entry.type !== "message" || entry.message.role !== "assistant") continue;
           totalCost += entry.message.usage.cost.total;
         }
 
