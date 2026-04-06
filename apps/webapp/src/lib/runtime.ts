@@ -97,7 +97,9 @@ const logTaggedError = (
       operation: errorValue.operation,
       functionName: errorValue.functionName,
       componentPath: errorValue.componentPath,
+      underlyingName: errorValue.underlyingName,
       message: errorValue.message,
+      responseData: serializeUnknown(errorValue.responseData),
       cause: serializeUnknown(errorValue.cause),
     });
 

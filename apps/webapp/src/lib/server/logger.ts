@@ -13,6 +13,18 @@ const levelOrder = {
 
 type LogLevel = keyof typeof levelOrder;
 
+const errorBaseFields = new Set(["name", "message", "stack", "cause"]);
+
+const getErrorExtraFields = (value: Error) => {
+  const extraFields = Object.fromEntries(
+    Object.getOwnPropertyNames(value)
+      .filter((key) => !errorBaseFields.has(key))
+      .map((key) => [key, serializeUnknown(Reflect.get(value, key))]),
+  );
+
+  return Object.keys(extraFields).length > 0 ? extraFields : undefined;
+};
+
 const serializeUnknown = (value: unknown): unknown => {
   if (value instanceof Error) {
     return {
@@ -20,6 +32,7 @@ const serializeUnknown = (value: unknown): unknown => {
       message: value.message,
       stack: value.stack,
       cause: value.cause === undefined ? undefined : serializeUnknown(value.cause),
+      ...getErrorExtraFields(value),
     };
   }
 

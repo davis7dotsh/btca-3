@@ -20,6 +20,8 @@ export class ConvexError extends Data.TaggedError("ConvexError")<{
   readonly operation: "query" | "mutation" | "action";
   readonly functionName: string;
   readonly componentPath?: string;
+  readonly responseData?: unknown;
+  readonly underlyingName?: string;
   readonly cause?: unknown;
 }> {}
 
@@ -66,6 +68,40 @@ const getRequiredValue = (value: string | undefined, key: string) => {
   return value;
 };
 
+const getErrorData = (error: unknown) => {
+  if (typeof error !== "object" || error === null || !("data" in error)) {
+    return undefined;
+  }
+
+  return error.data;
+};
+
+const formatUnknown = (value: unknown) => {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const getErrorMessage = (error: unknown) => {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  const errorData = getErrorData(error);
+
+  if (errorData !== undefined) {
+    return formatUnknown(errorData);
+  }
+
+  return String(error);
+};
+
 export class ConvexPrivateService extends ServiceMap.Service<ConvexPrivateService, ConvexPrivate>()(
   "ConvexPrivateService",
 ) {
@@ -91,13 +127,15 @@ export class ConvexPrivateService extends ServiceMap.Service<ConvexPrivateServic
       error: unknown;
     }) =>
       new ConvexError({
-        message: error instanceof Error ? error.message : String(error),
+        message: getErrorMessage(error),
         kind: `convex_${operation}_error`,
         traceId: randomUUID(),
         timestamp: Date.now(),
         operation,
         functionName: getFunctionName(func),
         componentPath: func._componentPath,
+        responseData: getErrorData(error),
+        underlyingName: error instanceof Error ? error.name : undefined,
         cause: error,
       });
 
