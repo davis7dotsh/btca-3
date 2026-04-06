@@ -6,6 +6,7 @@ packages:
 catalog:
   "@ai-sdk/openai": ^3.0.48
   "@axiomhq/js": ^1.5.0
+  "@contextcompany/pi": ^1.1.1
   "@convex-dev/workflow": ^0.3.9
   "@lucide/svelte": ^1.6.0
   "@mariozechner/pi-agent-core": ^0.62.0
@@ -30,7 +31,7 @@ catalog:
   "@types/react": ^19.2.14
   "@uploadthing/svelte": ^7.3.3
   "@upstash/box": ^0.1.28
-  '@upstash/ratelimit': ^2.0.8
+  "@upstash/ratelimit": ^2.0.8
   "@upstash/redis": ^1.37.0
   "@useautumn/convex": ^0.0.23
   "@vercel/functions": ^3.4.3

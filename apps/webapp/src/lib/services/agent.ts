@@ -1,4 +1,5 @@
-import { OPENCODE_API_KEY } from "$env/static/private";
+import { OPENCODE_API_KEY, TCC_API_KEY } from "$env/static/private";
+import { instrumentPiEventStream } from "@contextcompany/pi";
 import {
   agentLoop,
   type AgentEvent,
@@ -1038,6 +1039,11 @@ const createPromptThread =
         let activeAssistantGenerationStartedAt: number | null = null;
         let assistantGenerationDurationMs = 0;
         let assistantOutputTokens = 0;
+        const tccMetadata = {
+          provider: selectedModel.model.provider,
+          modelId: selectedModel.id,
+          resourceNames: taggedResources.map((resource) => resource.name),
+        };
         const events = agentLoop(
           messages,
           createThreadContext(
@@ -1051,6 +1057,11 @@ const createPromptThread =
           createThreadConfig(input.threadId, selectedModel.model),
           runSignal ?? undefined,
         );
+        const instrumentedEvents = instrumentPiEventStream(events, {
+          apiKey: TCC_API_KEY,
+          sessionId: input.threadId,
+          metadata: tccMetadata,
+        });
 
         return {
           threadId: input.threadId,
@@ -1066,7 +1077,7 @@ const createPromptThread =
           },
           events: (async function* () {
             try {
-              for await (const event of events) {
+              for await (const event of instrumentedEvents) {
                 throwIfRunAborted();
 
                 if (event.type === "message_update" && event.message.role === "assistant") {
