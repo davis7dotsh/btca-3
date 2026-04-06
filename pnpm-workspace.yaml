@@ -34,6 +34,7 @@ catalog:
   "@upstash/ratelimit": ^2.0.8
   "@upstash/redis": ^1.37.0
   "@useautumn/convex": ^0.0.23
+  '@vercel/analytics': ^2.0.1
   "@vercel/functions": ^3.4.3
   "@workos-inc/node": ^8.9.0
   ai: ^6.0.138
