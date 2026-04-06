@@ -157,6 +157,16 @@ const readCookieValue = (cookieHeader: string | null, key: string) => {
 };
 
 interface AuthDef {
+  resolveCanonicalWorkosUser: (input: { workosUserId: string }) => Effect.Effect<
+    {
+      user: ReturnType<typeof mapUser>;
+      userId: string;
+      workosUserId: string;
+      legacyClerkUserId: string | null;
+      email: string | null;
+    },
+    AuthError
+  >;
   getAuthorizationUrl: (options: {
     redirectUri: string;
     returnTo: string;
@@ -245,6 +255,30 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
                 }),
               ),
             );
+        });
+
+      const resolveCanonicalWorkosUser: AuthDef["resolveCanonicalWorkosUser"] = ({
+        workosUserId,
+      }) =>
+        Effect.gen(function* () {
+          const fullUser = yield* Effect.tryPromise({
+            try: () => workos.userManagement.getUser(workosUserId),
+            catch: (cause) =>
+              createAuthError({
+                message: `Failed to load the WorkOS profile for ${workosUserId}.`,
+                kind: "workos_get_user_error",
+                cause,
+              }),
+          });
+          const identity = yield* resolveCanonicalIdentity(fullUser);
+
+          return {
+            user: mapUser(fullUser, identity.canonicalUserId),
+            userId: identity.canonicalUserId,
+            workosUserId: fullUser.id,
+            legacyClerkUserId: identity.legacyClerkUserId,
+            email: fullUser.email ?? null,
+          };
         });
 
       const validateSealedSession = (sessionData: string) =>
@@ -417,6 +451,7 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthDef>()("Aut
         });
 
       return {
+        resolveCanonicalWorkosUser,
         getAuthorizationUrl,
         authenticateWithCode,
         validateSession,

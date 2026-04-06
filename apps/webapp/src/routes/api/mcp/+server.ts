@@ -2,6 +2,7 @@ import { api } from "@btca/convex/api";
 import { runtime } from "$lib/runtime";
 import { getAuthkitDomain, getProtectedResourceMetadataUrl } from "$lib/server/mcpAuthMetadata";
 import { AgentService } from "$lib/services/agent";
+import { AuthService } from "$lib/services/auth";
 import { AutumnService } from "$lib/services/autumn";
 import { ConvexPrivateService } from "$lib/services/convex";
 import {
@@ -23,6 +24,10 @@ import { z } from "zod";
 type McpAuthContext = {
   accessToken: string;
   userId: string;
+  workosUserId: string;
+  legacyClerkUserId: string | null;
+  email: string | null;
+  name: string | null;
   organizationId?: string;
   permissions: string[];
   expiresAt?: number;
@@ -122,6 +127,21 @@ const rateLimited = ({
     },
   );
 
+const internalServerError = (message = "Failed to process the MCP request.") =>
+  Response.json(
+    {
+      error: "Internal Server Error",
+      message,
+    },
+    {
+      status: 500,
+      headers: {
+        "Cache-Control": "no-store",
+        ...corsHeaders(),
+      },
+    },
+  );
+
 const getPermissions = (permissions: unknown) =>
   Array.isArray(permissions)
     ? permissions.filter((permission): permission is string => typeof permission === "string")
@@ -187,13 +207,22 @@ const formatResourcesText = (
     .join("\n\n");
 };
 
-const askAgent = (input: { userId: string; prompt: string; threadId?: string; modelId?: string }) =>
+const askAgent = (input: {
+  userId: string;
+  email?: string | null;
+  name?: string | null;
+  prompt: string;
+  threadId?: string;
+  modelId?: string;
+}) =>
   runtime.runPromise(
     Effect.gen(function* () {
       const autumn = yield* AutumnService;
       const agent = yield* AgentService;
       const usageAllowed = yield* autumn.checkUsageBalance({
         userId: input.userId,
+        email: input.email,
+        name: input.name,
         requiredBalance: 0.000001,
       });
 
@@ -278,6 +307,31 @@ const getJwks = () => {
   return jwks;
 };
 
+const verifyAccessToken = async (token: string) => {
+  const { payload } = await jwtVerify<WorkosClaims>(token, getJwks(), {
+    issuer: getAuthkitDomain().origin,
+  });
+
+  const workosUserId = payload.sub;
+
+  if (!workosUserId) {
+    throw new Error("Missing subject claim in MCP access token.");
+  }
+
+  return {
+    payload,
+    workosUserId,
+  };
+};
+
+const resolveCanonicalMcpUser = (workosUserId: string) =>
+  runtime.runPromise(
+    Effect.gen(function* () {
+      const auth = yield* AuthService;
+      return yield* auth.resolveCanonicalWorkosUser({ workosUserId });
+    }),
+  );
+
 server.tool(
   {
     name: "ask",
@@ -302,6 +356,8 @@ server.tool(
     try {
       const response = await askAgent({
         userId: auth.userId,
+        email: auth.email,
+        name: auth.name,
         prompt,
         threadId,
         modelId,
@@ -400,41 +456,10 @@ const handle: RequestHandler = async ({ request }) => {
     return unauthorized(request);
   }
 
+  let verifiedToken: Awaited<ReturnType<typeof verifyAccessToken>>;
+
   try {
-    const { payload } = await jwtVerify<WorkosClaims>(token, getJwks(), {
-      issuer: getAuthkitDomain().origin,
-    });
-
-    const userId = payload.sub;
-
-    if (!userId) {
-      return unauthorized(request);
-    }
-
-    const mcpRateLimit = await runtime.runPromise(
-      Effect.gen(function* () {
-        const rateLimit = yield* RateLimitService;
-        return yield* rateLimit.checkMcp(userId);
-      }),
-    );
-    waitUntil(mcpRateLimit.pending);
-
-    if (!mcpRateLimit.allowed) {
-      return rateLimited({
-        message: "Rate limit exceeded. MCP is limited to 5 messages per second.",
-        result: mcpRateLimit,
-      });
-    }
-
-    return (
-      (await transport.respond(request, {
-        accessToken: token,
-        userId,
-        organizationId: typeof payload.org_id === "string" ? payload.org_id : undefined,
-        permissions: getPermissions(payload.permissions),
-        expiresAt: typeof payload.exp === "number" ? payload.exp : undefined,
-      })) ?? new Response("Not Found", { status: 404 })
-    );
+    verifiedToken = await verifyAccessToken(token);
   } catch (error) {
     if (error instanceof errors.JWTExpired) {
       console.info(
@@ -454,6 +479,48 @@ const handle: RequestHandler = async ({ request }) => {
     });
 
     return unauthorized(request);
+  }
+
+  try {
+    const canonicalUser = await resolveCanonicalMcpUser(verifiedToken.workosUserId);
+    const mcpRateLimit = await runtime.runPromise(
+      Effect.gen(function* () {
+        const rateLimit = yield* RateLimitService;
+        return yield* rateLimit.checkMcp(canonicalUser.userId);
+      }),
+    );
+    waitUntil(mcpRateLimit.pending);
+
+    if (!mcpRateLimit.allowed) {
+      return rateLimited({
+        message: "Rate limit exceeded. MCP is limited to 5 messages per second.",
+        result: mcpRateLimit,
+      });
+    }
+
+    return (
+      (await transport.respond(request, {
+        accessToken: token,
+        userId: canonicalUser.userId,
+        workosUserId: canonicalUser.workosUserId,
+        legacyClerkUserId: canonicalUser.legacyClerkUserId,
+        email: canonicalUser.email,
+        name: canonicalUser.user.firstName,
+        organizationId:
+          typeof verifiedToken.payload.org_id === "string"
+            ? verifiedToken.payload.org_id
+            : undefined,
+        permissions: getPermissions(verifiedToken.payload.permissions),
+        expiresAt:
+          typeof verifiedToken.payload.exp === "number" ? verifiedToken.payload.exp : undefined,
+      })) ?? new Response("Not Found", { status: 404 })
+    );
+  } catch (error) {
+    console.error("Failed to resolve MCP user context", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return internalServerError();
   }
 };
 

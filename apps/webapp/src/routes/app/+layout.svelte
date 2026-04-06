@@ -74,43 +74,57 @@
 			</div>
 		</div>
 	{:else}
-		<div class="relative flex h-dvh overflow-hidden bg-[hsl(var(--bc-bg))] text-[hsl(var(--bc-fg))]">
-			<div aria-hidden="true" class="bc-appBg pointer-events-none absolute inset-0 -z-10"></div>
-
-			<button
-				type="button"
-				class="bc-iconBtn fixed left-4 top-4 z-50 lg:hidden"
-				onclick={() => (sidebarOpen = true)}
-				aria-label="Open sidebar"
+		<div class="flex h-dvh flex-col bg-[hsl(var(--bc-bg))] text-[hsl(var(--bc-fg))]">
+			<div
+				class="z-50 border-b border-amber-500/20 bg-[linear-gradient(90deg,hsl(var(--bc-surface-2)),rgba(217,169,56,0.12),hsl(var(--bc-surface-2)))] px-4 py-2 text-xs text-amber-300/80"
 			>
-				<Menu size={18} />
-			</button>
+				<div class="mx-auto flex w-full items-center justify-center gap-2.5">
+					<div class="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400"></div>
+					<p>
+						Warning: new version is in alpha. Should be much better, but a lot of improvements are
+						still being made…
+					</p>
+				</div>
+			</div>
 
-			<aside
-				class={`fixed inset-y-0 left-0 z-40 w-[18.5rem] shrink-0 transform border-r border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] transition-transform duration-200 ease-out lg:relative lg:translate-x-0 ${
-					sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-				}`}
-			>
-				<AppSidebar
-					isOpen={sidebarOpen}
-					onOpenCommandPalette={() => (commandPaletteOpen = true)}
-					onClose={() => (sidebarOpen = false)}
-				/>
-			</aside>
+			<div class="relative flex min-h-0 flex-1 overflow-hidden">
+				<div aria-hidden="true" class="bc-appBg pointer-events-none absolute inset-0 -z-10"></div>
 
-			{#if sidebarOpen}
 				<button
 					type="button"
-					class="fixed inset-0 z-30 bg-black/55 lg:hidden"
-					onclick={() => (sidebarOpen = false)}
-					aria-label="Close sidebar"
-				></button>
-			{/if}
+					class="bc-iconBtn fixed left-4 top-4 z-50 lg:hidden"
+					onclick={() => (sidebarOpen = true)}
+					aria-label="Open sidebar"
+				>
+					<Menu size={18} />
+				</button>
 
-			<main class="bc-page-enter relative flex min-h-0 flex-1 flex-col">
-				<LegacyMigrationBanner />
-				{@render children()}
-			</main>
+				<aside
+					class={`fixed inset-y-0 left-0 z-40 w-[18.5rem] shrink-0 transform border-r border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-bg))] transition-transform duration-200 ease-out lg:relative lg:translate-x-0 ${
+						sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+					}`}
+				>
+					<AppSidebar
+						isOpen={sidebarOpen}
+						onOpenCommandPalette={() => (commandPaletteOpen = true)}
+						onClose={() => (sidebarOpen = false)}
+					/>
+				</aside>
+
+				{#if sidebarOpen}
+					<button
+						type="button"
+						class="fixed inset-0 z-30 bg-black/55 lg:hidden"
+						onclick={() => (sidebarOpen = false)}
+						aria-label="Close sidebar"
+					></button>
+				{/if}
+
+				<main class="bc-page-enter relative flex min-h-0 flex-1 flex-col">
+					<LegacyMigrationBanner />
+					{@render children()}
+				</main>
+			</div>
 		</div>
 
 		<CommandPalette isOpen={commandPaletteOpen} onClose={() => (commandPaletteOpen = false)} />
