@@ -166,22 +166,26 @@ const readPasswordDigests = async (filePath: string) => {
 
 const readRoleMap = async (filePath: string) => {
   const parsed = await parseJsonObjectFile(filePath);
+  const normalizedEntries: Array<[string, string[]]> = [];
 
-  return new Map(
-    Object.entries(parsed).flatMap(([clerkRole, workosRole]) => {
-      if (typeof workosRole === "string") {
-        return [[clerkRole, [workosRole]] as const];
-      }
+  for (const [clerkRole, workosRole] of Object.entries(parsed)) {
+    if (typeof workosRole === "string") {
+      normalizedEntries.push([clerkRole, [workosRole]]);
+      continue;
+    }
 
-      if (Array.isArray(workosRole) && workosRole.every((value) => typeof value === "string")) {
-        return [[clerkRole, workosRole] as const];
-      }
+    if (
+      Array.isArray(workosRole) &&
+      workosRole.every((value): value is string => typeof value === "string")
+    ) {
+      normalizedEntries.push([clerkRole, workosRole]);
+      continue;
+    }
 
-      throw new Error(
-        `Invalid role mapping for "${clerkRole}". Expected a string or string array.`,
-      );
-    }),
-  );
+    throw new Error(`Invalid role mapping for "${clerkRole}". Expected a string or string array.`);
+  }
+
+  return new Map(normalizedEntries);
 };
 
 const loadExistingMembershipUserIds = async (organizationId: string) => {

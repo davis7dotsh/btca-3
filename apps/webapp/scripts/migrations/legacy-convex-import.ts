@@ -1,5 +1,7 @@
 import { api } from "@btca/convex/api";
+import type { Id } from "@btca/convex/data-model";
 import { ConvexHttpClient } from "convex/browser";
+import type { FunctionArgs } from "convex/server";
 import {
   defaultTimestamp,
   getNumberArg,
@@ -58,6 +60,14 @@ const instanceId = getStringArg(args, "instance");
 const clerkUserId = getStringArg(args, "clerk-user-id");
 const limit = getStringArg(args, "limit") ? getNumberArg(args, "limit", 0) : undefined;
 
+type MigrationStartArgs = FunctionArgs<typeof api.private.migrations.start>;
+type MigrationStatusArgs = FunctionArgs<typeof api.private.migrations.status>;
+type InstanceId = NonNullable<MigrationStartArgs["instanceId"]>;
+type WorkflowId = MigrationStatusArgs["workflowId"];
+
+const toInstanceId = (value: string): InstanceId => value as Id<"instances">;
+const toWorkflowId = (value: string): WorkflowId => value as WorkflowId;
+
 const main = async () => {
   const startedAt = new Date().toISOString();
   const startResult = await convex.mutation(api.private.migrations.start, {
@@ -65,17 +75,18 @@ const main = async () => {
     mode,
     dryRun,
     includeGlobalResources,
-    instanceId: instanceId ?? undefined,
+    instanceId: instanceId ? toInstanceId(instanceId) : undefined,
     clerkUserId: clerkUserId ?? undefined,
     limit,
   });
+  const workflowId = toWorkflowId(startResult.workflowId);
 
   const initialReport = {
     generatedAt: startedAt,
     dryRun,
     mode,
     runId: `${startResult.runId}`,
-    workflowId: `${startResult.workflowId}`,
+    workflowId: `${workflowId}`,
     waitForCompletion,
     workflowStatus: {
       type: "inProgress" as const,
@@ -84,7 +95,7 @@ const main = async () => {
 
   if (!waitForCompletion) {
     await writeJsonFile(reportPath, initialReport);
-    console.log(`Started legacy Convex migration workflow ${startResult.workflowId}`);
+    console.log(`Started legacy Convex migration workflow ${workflowId}`);
     console.log(`Run ID: ${startResult.runId}`);
     console.log(`Wrote starter report to ${reportPath}`);
     return;
@@ -94,7 +105,7 @@ const main = async () => {
     const status = await convex.query(api.private.migrations.status, {
       apiKey,
       runId: startResult.runId,
-      workflowId: startResult.workflowId,
+      workflowId,
     });
 
     if (status.workflowStatus.type === "inProgress") {
@@ -108,16 +119,14 @@ const main = async () => {
       dryRun,
       mode,
       runId: `${startResult.runId}`,
-      workflowId: `${startResult.workflowId}`,
+      workflowId: `${workflowId}`,
       run: status.run,
       workflowStatus: status.workflowStatus,
     };
 
     await writeJsonFile(reportPath, report);
 
-    console.log(
-      `Workflow ${startResult.workflowId} finished with status ${status.workflowStatus.type}`,
-    );
+    console.log(`Workflow ${workflowId} finished with status ${status.workflowStatus.type}`);
     console.log(`Wrote workflow report to ${reportPath}`);
 
     if (status.workflowStatus.type === "failed") {

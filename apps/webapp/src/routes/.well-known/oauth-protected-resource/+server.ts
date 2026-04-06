@@ -1,4 +1,4 @@
-import { buildProtectedResourceMetadata } from "$lib/server/mcpAuthMetadata";
+import { buildProtectedResourceMetadata } from "../../../lib/server/mcpAuthMetadata";
 import type { RequestHandler } from "@sveltejs/kit";
 
 const responseHeaders = {

@@ -172,6 +172,15 @@ const main = async () => {
         continue;
       }
 
+      if (!legacyCustomer.id) {
+        report.skipped.push({
+          clerkUserId: link.clerkUserId,
+          workosUserId: link.workosUserId,
+          reason: "WorkOS-keyed Autumn customer is missing a stable customer ID.",
+        });
+        continue;
+      }
+
       if (dryRun) {
         report.renamedCustomers += 1;
         continue;

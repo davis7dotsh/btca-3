@@ -29,12 +29,13 @@ catalog:
   "@tmcp/transport-stdio": ^0.4.2
   "@types/node": ^24.12.0
   "@types/react": ^19.2.14
+  "@typescript/native-preview": 7.0.0-dev.20260316.1
   "@uploadthing/svelte": ^7.3.3
   "@upstash/box": ^0.1.28
   "@upstash/ratelimit": ^2.0.8
   "@upstash/redis": ^1.37.0
   "@useautumn/convex": ^0.0.23
-  '@vercel/analytics': ^2.0.1
+  "@vercel/analytics": ^2.0.1
   "@vercel/functions": ^3.4.3
   "@workos-inc/node": ^8.9.0
   ai: ^6.0.138

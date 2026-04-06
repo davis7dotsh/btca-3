@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { env } from "$env/dynamic/private";
-import { Agent, Box, type Box as UpstashBox } from "@upstash/box";
+import { Box, type Box as UpstashBox } from "@upstash/box";
 import { Cause, Data, Effect, Layer, ServiceMap } from "effect";
 import type {
   SandboxExecuteCommandInput,

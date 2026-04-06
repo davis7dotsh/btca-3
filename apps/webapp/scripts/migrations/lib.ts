@@ -202,10 +202,12 @@ export const printUsageAndExit = (usage: string) => {
   process.exit(0);
 };
 
-export const parseJsonObjectFile = async (filePath: string) => {
+export const parseJsonObjectFile = async (filePath: string): Promise<Record<string, unknown>> => {
   const parsed = await readJsonFile<unknown>(filePath);
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
 
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     throw new Error(`Expected ${filePath} to contain a JSON object.`);
   }
 
