@@ -1,6 +1,7 @@
 import { waitUntil } from "@vercel/functions";
 import { json, type RequestHandler } from "@sveltejs/kit";
 import { Data, Effect, Schema } from "effect";
+import { isAgentModelId } from "$lib/models";
 import { runtime } from "$lib/runtime";
 import { normalizeAgentEvent } from "$lib/services/agentStreamEvents";
 import { AgentService } from "$lib/services/agent";
@@ -344,6 +345,17 @@ export const POST: RequestHandler = async (event) => {
                   }),
               ),
             ),
+          ),
+          Effect.flatMap((body) =>
+            body.modelId !== undefined && !isAgentModelId(body.modelId)
+              ? Effect.fail(
+                  new AgentRequestError({
+                    status: 400,
+                    message: "Unsupported modelId.",
+                    cause: body.modelId,
+                  }),
+                )
+              : Effect.succeed(body),
           ),
         );
         const allowed = yield* autumn.checkUsageBalance({

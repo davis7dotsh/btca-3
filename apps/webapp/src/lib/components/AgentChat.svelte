@@ -21,7 +21,8 @@
 		agentModelOptions,
 		defaultAgentModelId,
 		findAgentModelOptionForProviderModel,
-		getAgentModelOption
+		getAgentModelOption,
+		isAgentModelId
 	} from '$lib/models';
 	import { extractTaggedResourceNames, normalizeResourceName } from '$lib/resources';
 	import type { AgentModelId, AgentModelOption } from '$lib/models';
@@ -241,8 +242,6 @@
 	const RUN_RESUME_STORAGE_KEY = 'bc-agent-run-resume';
 	const createId = () => crypto.randomUUID();
 	const createThreadId = () => `chat-${crypto.randomUUID()}`;
-	const isAgentModelId = (value: string | null | undefined): value is AgentModelId =>
-		value !== null && value !== undefined && agentModelOptions.some((option) => option.id === value);
 
 	const getAssistantText = (message: AssistantMessage) =>
 		message.parts.flatMap((part) => (part.type === 'text' ? [part.content] : [])).join('');

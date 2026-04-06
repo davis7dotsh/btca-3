@@ -1,6 +1,13 @@
 import { v } from "convex/values";
 import { authedMutation, authedQuery } from "./helpers";
 
+const supportedAgentModelIds = new Set(["gpt-5.4-mini", "claude-haiku-4-5", "kimi-k2.5"]);
+const assertSupportedAgentModelId = (modelId: string) => {
+  if (!supportedAgentModelIds.has(modelId)) {
+    throw new Error("Unsupported model.");
+  }
+};
+
 const toThreadListItem = (thread: {
   threadId: string;
   title?: string;
@@ -133,6 +140,8 @@ export const setDefaultModel = authedMutation({
     modelId: v.string(),
   },
   handler: async (ctx, args) => {
+    assertSupportedAgentModelId(args.modelId);
+
     const userId = ctx.authUser.userId;
     const now = Date.now();
     const existing = await ctx.db
@@ -166,6 +175,8 @@ export const setThreadModelSelection = authedMutation({
     modelId: v.string(),
   },
   handler: async (ctx, args) => {
+    assertSupportedAgentModelId(args.modelId);
+
     const userId = ctx.authUser.userId;
     const now = Date.now();
     const thread = await ctx.db

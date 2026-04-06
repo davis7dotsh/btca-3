@@ -36,12 +36,6 @@ const modelDefinitions = [
     model: getModel("opencode", "gpt-5.4-mini"),
   },
   {
-    id: "gemini-3-flash",
-    label: "gemini-3-flash",
-    description: "Fast Gemini reasoning through OpenCode Zen.",
-    model: getModel("opencode", "gemini-3-flash"),
-  },
-  {
     id: "claude-haiku-4-5",
     label: "claude-haiku-4-5",
     description: "Fast and fairly precise.",
@@ -58,6 +52,10 @@ const modelDefinitions = [
 export type AgentModelId = (typeof modelDefinitions)[number]["id"];
 
 export const defaultAgentModelId = modelDefinitions[0].id;
+export const isAgentModelId = (value: string | null | undefined): value is AgentModelId =>
+  value !== null &&
+  value !== undefined &&
+  modelDefinitions.some((definition) => definition.id === value);
 
 const toAgentModelOption = (definition: AgentModelDefinition): AgentModelOption => ({
   id: definition.id as AgentModelId,
