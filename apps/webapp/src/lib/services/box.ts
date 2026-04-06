@@ -21,7 +21,6 @@ type BoxOperation =
 const DEFAULT_BOX_TIMEOUT_MS = 10 * 60 * 1_000;
 const BOX_RUNTIME = "node";
 const BOX_WORKSPACE_CWD = "/workspace/home";
-export const BOX_CODEX_MODEL = "openai/gpt-5.4-mini";
 
 export class BoxServiceError extends Data.TaggedError("BoxServiceError")<{
   readonly message: string;
@@ -207,11 +206,6 @@ export class BoxService extends ServiceMap.Service<BoxService, BoxDef>()("BoxSer
                 url: `https://mcp.exa.ai/mcp?exaApiKey=${exaApiKey}&tools=web_search_exa`,
               },
             ],
-            agent: {
-              provider: Agent.Codex,
-              model: BOX_CODEX_MODEL,
-              apiKey: getRequiredValue(env.OPENAI_API_KEY, "OPENAI_API_KEY"),
-            },
             env: {
               PI_LAND_THREAD_ID: input.threadId,
               PI_LAND_THREAD_NAME: createThreadBoxName(input.threadId),
@@ -221,7 +215,6 @@ export class BoxService extends ServiceMap.Service<BoxService, BoxDef>()("BoxSer
           console.log("Created Upstash Box for thread", {
             threadId: input.threadId,
             boxId: box.id,
-            model: BOX_CODEX_MODEL,
           });
 
           return await prepareThreadBox(box);

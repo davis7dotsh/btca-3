@@ -1040,6 +1040,7 @@
 	let selectedModelId = $state<AgentModelId | null>(null);
 	let threadId = $state<string | null>(page.params.id ?? null);
 	let errorMessage = $state<string | null>(null);
+	let isSubmittingPrompt = $state(false);
 	let isStreaming = $state(false);
 	let toolExpanded = $state<Record<string, boolean>>({});
 	let toolGroupExpanded = $state<Record<string, boolean>>({});
@@ -1175,8 +1176,13 @@
 	);
 	const chatRouteBase = $derived(resolve(routeBase));
 	const resolvedAgentApiPath = $derived(resolve(agentApiPath));
+	const isSendInFlight = $derived(isSubmittingPrompt || isStreaming);
+	const isSubmitPending = $derived(isSubmittingPrompt && !isStreaming);
+	const isComposerDisabled = $derived(
+		isSendInFlight || retryingMessageId !== null || !isModelSelectionReady
+	);
 	const isCurrentThreadRunning = $derived(
-		isStreaming ||
+		isSendInFlight ||
 			(resolvedThreadData?.thread.threadId === threadId &&
 				resolvedThreadData.thread.status === 'running')
 	);
@@ -1203,6 +1209,9 @@
 		composerAttachments.some(
 			(attachment) => attachment.status === 'uploading' || attachment.status === 'removing'
 		)
+	);
+	const canSubmitPrompt = $derived(
+		draft.trim().length > 0 && !isComposerDisabled && !isAttachmentWorkPending
 	);
 	const hydratedThreadMessages = $derived.by(() => {
 		if (!threadId || resolvedThreadData === null) {
@@ -1646,7 +1655,7 @@
 	}
 
 	function openAttachmentPicker() {
-		if (isStreaming || retryingMessageId !== null || !isModelSelectionReady) {
+		if (isComposerDisabled) {
 			return;
 		}
 
@@ -1682,7 +1691,7 @@
 	}
 
 	async function uploadAttachments(fileList: FileList | readonly File[] | null) {
-		if (isStreaming || retryingMessageId !== null || !isModelSelectionReady) {
+		if (isComposerDisabled) {
 			return;
 		}
 
@@ -2581,162 +2590,176 @@
 		const prompt = promptOverride.trim();
 		const clearDraft = options?.clearDraft ?? true;
 		const currentModelId = selectedModelId ?? resolvedSelectedModelId;
-		const selectedAttachmentIds = options?.attachmentIds ?? composerPendingAttachments.map((attachment) => attachment.id as AttachmentId);
+		const selectedAttachmentIds =
+			options?.attachmentIds ??
+			composerPendingAttachments.map((attachment) => attachment.id as AttachmentId);
 		const selectedAttachments = attachments.filter((attachment) =>
 			selectedAttachmentIds.includes(attachment.id as AttachmentId)
 		);
 
-		if (!prompt || isStreaming || !currentModelId || isAttachmentWorkPending) {
+		if (
+			!prompt ||
+			isSendInFlight ||
+			!currentModelId ||
+			!isModelSelectionReady ||
+			isAttachmentWorkPending
+		) {
 			return;
 		}
 
-		errorMessage = null;
-
-		let activeThreadId: string;
+		isSubmittingPrompt = true;
 
 		try {
-			activeThreadId = await ensureThreadId();
-		} catch (error) {
-			const message = getHumanErrorMessage(error, 'Failed to create the thread.');
-			errorMessage = message;
-			appendSystemMessage(message);
-			return;
-		}
+			errorMessage = null;
 
-		isStreaming = true;
-		upScrollCursor = null;
+			let activeThreadId: string;
 
-		const controller = new AbortController();
-		currentRequest = controller;
-
-		const userMessageId = createId();
-		const assistantId = createId();
-		const nextUserSequence = getThreadPersistedMessageCount(activeThreadId);
-		const shouldScrollToSubmittedMessage = nextUserSequence > 0;
-		const previousAttachmentState = cloneThreadAttachments(selectedAttachments);
-
-		attachments = attachments.map((attachment) =>
-			selectedAttachmentIds.includes(attachment.id as AttachmentId)
-				? {
-						...attachment,
-						status: 'attached',
-						messageSequence: nextUserSequence,
-						updatedAt: Date.now()
-					}
-				: attachment
-		);
-
-		messages = [
-			...messages,
-			{
-				id: userMessageId,
-				role: 'user',
-				content: prompt,
-				attachments: cloneThreadAttachments(
-					attachments.filter((attachment) => attachment.messageSequence === nextUserSequence)
-				),
-				createdAt: Date.now(),
-				persistedSequence: nextUserSequence
-			},
-			{
-				id: assistantId,
-				role: 'assistant',
-				parts: [],
-				createdAt: Date.now(),
-				pending: true,
-				canceled: false,
-				stats: createAssistantStats(selectedModel)
-			}
-		];
-
-		if (clearDraft) {
-			draft = '';
-		}
-
-		if (shouldScrollToSubmittedMessage) {
-			await tick();
-			scrollContainer
-				?.querySelector(`[data-message-id="${userMessageId}"]`)
-				?.scrollIntoView({ behavior: 'instant', block: 'start' });
-		} else {
-			await tick();
-			scrollContainer?.scrollTo({ top: 0, behavior: 'instant' });
-		}
-
-		try {
-			const response = await fetch(resolvedAgentApiPath, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					threadId: activeThreadId,
-					prompt,
-					modelId: currentModelId,
-					attachmentIds: selectedAttachmentIds
-				}),
-				signal: controller.signal
-			});
-
-			if (!response.ok) {
-				const payload = (await response.json().catch(() => null)) as {
-					message?: string;
-				} | null;
-				throw new Error(payload?.message ?? 'The agent stream request failed.');
+			try {
+				activeThreadId = await ensureThreadId();
+			} catch (error) {
+				const message = getHumanErrorMessage(error, 'Failed to create the thread.');
+				errorMessage = message;
+				appendSystemMessage(message);
+				return;
 			}
 
-			const payload = (await response.json()) as AgentRunStartResponse;
-			setRunResumeState(activeThreadId, {
-				runId: payload.runId,
-				lastEventId: null
-			});
-			const streamResult = await consumeAgentRunStream({
-				streamPath: payload.streamPath,
-				assistantId,
-				controller,
-				onEvent: ({ id }) => {
-					setRunResumeState(activeThreadId, {
-						runId: payload.runId,
-						lastEventId: id
-					});
+			isStreaming = true;
+			upScrollCursor = null;
+
+			const controller = new AbortController();
+			currentRequest = controller;
+
+			const userMessageId = createId();
+			const assistantId = createId();
+			const nextUserSequence = getThreadPersistedMessageCount(activeThreadId);
+			const shouldScrollToSubmittedMessage = nextUserSequence > 0;
+			const previousAttachmentState = cloneThreadAttachments(selectedAttachments);
+
+			attachments = attachments.map((attachment) =>
+				selectedAttachmentIds.includes(attachment.id as AttachmentId)
+					? {
+							...attachment,
+							status: 'attached',
+							messageSequence: nextUserSequence,
+							updatedAt: Date.now()
+						}
+					: attachment
+			);
+
+			messages = [
+				...messages,
+				{
+					id: userMessageId,
+					role: 'user',
+					content: prompt,
+					attachments: cloneThreadAttachments(
+						attachments.filter((attachment) => attachment.messageSequence === nextUserSequence)
+					),
+					createdAt: Date.now(),
+					persistedSequence: nextUserSequence
+				},
+				{
+					id: assistantId,
+					role: 'assistant',
+					parts: [],
+					createdAt: Date.now(),
+					pending: true,
+					canceled: false,
+					stats: createAssistantStats(selectedModel)
 				}
-			});
+			];
 
-			if (streamResult.completed) {
-				setThreadPersistedMessageCount(
-					activeThreadId,
-					nextUserSequence + streamResult.persistedMessageCount
-				);
-				clearRunResumeState(activeThreadId);
+			if (clearDraft) {
+				draft = '';
 			}
-		} catch (error) {
-			if (controller.signal.aborted) {
+
+			if (shouldScrollToSubmittedMessage) {
+				await tick();
+				scrollContainer
+					?.querySelector(`[data-message-id="${userMessageId}"]`)
+					?.scrollIntoView({ behavior: 'instant', block: 'start' });
+			} else {
+				await tick();
+				scrollContainer?.scrollTo({ top: 0, behavior: 'instant' });
+			}
+
+			try {
+				const response = await fetch(resolvedAgentApiPath, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						threadId: activeThreadId,
+						prompt,
+						modelId: currentModelId,
+						attachmentIds: selectedAttachmentIds
+					}),
+					signal: controller.signal
+				});
+
+				if (!response.ok) {
+					const payload = (await response.json().catch(() => null)) as {
+						message?: string;
+					} | null;
+					throw new Error(payload?.message ?? 'The agent stream request failed.');
+				}
+
+				const payload = (await response.json()) as AgentRunStartResponse;
+				setRunResumeState(activeThreadId, {
+					runId: payload.runId,
+					lastEventId: null
+				});
+				const streamResult = await consumeAgentRunStream({
+					streamPath: payload.streamPath,
+					assistantId,
+					controller,
+					onEvent: ({ id }) => {
+						setRunResumeState(activeThreadId, {
+							runId: payload.runId,
+							lastEventId: id
+						});
+					}
+				});
+
+				if (streamResult.completed) {
+					setThreadPersistedMessageCount(
+						activeThreadId,
+						nextUserSequence + streamResult.persistedMessageCount
+					);
+					clearRunResumeState(activeThreadId);
+				}
+			} catch (error) {
+				if (controller.signal.aborted) {
+					attachments = attachments.map((attachment) => {
+						const previous = previousAttachmentState.find((candidate) => candidate.id === attachment.id);
+						return previous ? previous : attachment;
+					});
+					updateAssistantMessage(assistantId, (message) => ({
+						...message,
+						pending: false
+					}));
+					return;
+				}
+
+				const message = getHumanErrorMessage(error, 'The chat request failed.');
+				errorMessage = message;
 				attachments = attachments.map((attachment) => {
 					const previous = previousAttachmentState.find((candidate) => candidate.id === attachment.id);
 					return previous ? previous : attachment;
 				});
-				updateAssistantMessage(assistantId, (message) => ({
-					...message,
-					pending: false
-				}));
-				return;
-			}
+				updateAssistantMessage(assistantId, (current) => ({ ...current, pending: false }));
+				appendSystemMessage(message);
+			} finally {
+				if (currentRequest === controller) {
+					currentRequest = null;
+				}
 
-			const message = getHumanErrorMessage(error, 'The chat request failed.');
-			errorMessage = message;
-			attachments = attachments.map((attachment) => {
-				const previous = previousAttachmentState.find((candidate) => candidate.id === attachment.id);
-				return previous ? previous : attachment;
-			});
-			updateAssistantMessage(assistantId, (current) => ({ ...current, pending: false }));
-			appendSystemMessage(message);
+				isStreaming = false;
+				void tick().then(() => {
+					composer?.focus();
+				});
+			}
 		} finally {
-			if (currentRequest === controller) {
-				currentRequest = null;
-			}
-
-			isStreaming = false;
-			void tick().then(() => {
-				composer?.focus();
-			});
+			isSubmittingPrompt = false;
 		}
 	}
 
@@ -2883,7 +2906,7 @@
 
 	function openEditPromptModal(message: UserMessage) {
 		if (
-			isStreaming ||
+			isSendInFlight ||
 			retryingMessageId !== null ||
 			editingMessageId !== null ||
 			message.persistedSequence === null
@@ -2916,7 +2939,7 @@
 		attachmentIds: AttachmentId[];
 	}) {
 		if (
-			isStreaming ||
+			isSendInFlight ||
 			retryingMessageId !== null ||
 			!convex ||
 			!threadId ||
@@ -3132,7 +3155,7 @@
 	}
 
 	async function selectModel(id: AgentModelId) {
-		if (!convex) {
+		if (!convex || isComposerDisabled) {
 			return;
 		}
 
@@ -3249,7 +3272,7 @@
 	}
 
 	function handleGlobalPaste(event: ClipboardEvent) {
-		if (isStreaming || retryingMessageId !== null || !isModelSelectionReady) {
+		if (isComposerDisabled) {
 			return;
 		}
 
@@ -3269,7 +3292,7 @@
 	}
 
 	function handleChatDragEnter(event: DragEvent) {
-		if (isStreaming || retryingMessageId !== null || !isModelSelectionReady) {
+		if (isComposerDisabled) {
 			return;
 		}
 
@@ -3283,7 +3306,7 @@
 	}
 
 	function handleChatDragOver(event: DragEvent) {
-		if (isStreaming || retryingMessageId !== null || !isModelSelectionReady) {
+		if (isComposerDisabled) {
 			return;
 		}
 
@@ -3511,7 +3534,7 @@
 									type="button"
 									class="chat-message-action"
 									onclick={() => openEditPromptModal(message)}
-									disabled={isStreaming ||
+									disabled={isSendInFlight ||
 										retryingMessageId !== null ||
 										editingMessageId !== null ||
 										message.persistedSequence === null}
@@ -3533,7 +3556,7 @@
 									type="button"
 									class="chat-message-action"
 									onclick={() => void retryUserMessage(message)}
-									disabled={isStreaming ||
+									disabled={isSendInFlight ||
 										retryingMessageId !== null ||
 										message.persistedSequence === null}
 								>
@@ -4016,7 +4039,7 @@
 				class="chat-input bc-scrollbar"
 				rows="1"
 				placeholder="Ask the agent to inspect code, run a command, or read a file..."
-				disabled={isStreaming || retryingMessageId !== null || !isModelSelectionReady}
+				disabled={isComposerDisabled}
 				oninput={handleComposerInput}
 				onclick={handleComposerClick}
 				onkeydown={handleComposerKeydown}
@@ -4026,7 +4049,7 @@
 			<button
 				type="button"
 				class="input-attachment-btn"
-				disabled={isStreaming || retryingMessageId !== null || !isModelSelectionReady}
+				disabled={isComposerDisabled}
 				onclick={openAttachmentPicker}
 			>
 				Add image
@@ -4043,12 +4066,33 @@
 						<rect x="6" y="6" width="12" height="12" rx="2" />
 					</svg>
 				</button>
+			{:else if isSubmitPending}
+				<button
+					type="button"
+					class="send-btn"
+					disabled={true}
+					aria-label="Sending message"
+				>
+					<svg
+						class="animate-spin"
+						width="16"
+						height="16"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					>
+						<path d="M21 12a9 9 0 1 1-6.219-8.56" />
+					</svg>
+				</button>
 			{:else}
 				<button
 					type="button"
 					class="send-btn"
 					onclick={() => void submitPrompt()}
-					disabled={!draft.trim() || retryingMessageId !== null || !isModelSelectionReady || isAttachmentWorkPending}
+					disabled={!canSubmitPrompt}
 					aria-label="Send message"
 				>
 					<svg
@@ -4074,7 +4118,7 @@
 				<button
 					type="button"
 					class="model-picker-trigger"
-					disabled={isStreaming || retryingMessageId !== null || !isModelSelectionReady}
+					disabled={isComposerDisabled}
 					onclick={() => (modelPickerOpen = !modelPickerOpen)}
 				>
 					<span>{isModelSelectionReady ? selectedModel.label : 'Loading model...'}</span>
@@ -4104,6 +4148,7 @@
 								type="button"
 								class="model-picker-option"
 								class:model-picker-option-active={option.id === selectedModelId}
+								disabled={isComposerDisabled}
 								onclick={() => void selectModel(option.id)}
 							>
 								<span class="model-picker-option-label">{option.label}</span>
@@ -4115,6 +4160,13 @@
 			</div>
 
 			<div class="input-footer-meta">
+				{#if isSubmitPending}
+					<span class="inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-[hsl(var(--bc-warning))]">
+						<span class="h-1.5 w-1.5 rounded-full bg-current animate-pulse"></span>
+						Sending
+					</span>
+				{/if}
+
 				{#if taggedThreadResources.length > 0}
 					<div class="flex min-w-0 items-center gap-2 overflow-hidden text-[11px] text-[hsl(var(--bc-fg-muted))]">
 						<span class="shrink-0 uppercase tracking-[0.18em]">Tagged</span>

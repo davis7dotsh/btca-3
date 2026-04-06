@@ -2,6 +2,7 @@ import { api } from "@btca/convex/api";
 import { runtime } from "$lib/runtime";
 import { getAuthkitDomain, getProtectedResourceMetadataUrl } from "$lib/server/mcpAuthMetadata";
 import { AgentService } from "$lib/services/agent";
+import { AutumnService } from "$lib/services/autumn";
 import { ConvexPrivateService } from "$lib/services/convex";
 import {
   getRateLimitHeaders,
@@ -65,6 +66,7 @@ const RESOURCE_SUMMARY_SCHEMA = z.object({
 const RESOURCE_CATALOG_URI = "btca://resources/catalog.json";
 const MCP_AUTH_CHANGED_MESSAGE =
   "BTCA MCP auth has changed. Update your config from https://btca.dev/app/mcp/getting-started";
+const MCP_NO_USAGE_MESSAGE = "No usage remaining. Upgrade to Pro to continue.";
 
 const corsHeaders = () => ({
   "Access-Control-Allow-Origin": "*",
@@ -188,7 +190,17 @@ const formatResourcesText = (
 const askAgent = (input: { userId: string; prompt: string; threadId?: string; modelId?: string }) =>
   runtime.runPromise(
     Effect.gen(function* () {
+      const autumn = yield* AutumnService;
       const agent = yield* AgentService;
+      const usageAllowed = yield* autumn.checkUsageBalance({
+        userId: input.userId,
+        requiredBalance: 0.000001,
+      });
+
+      if (!usageAllowed) {
+        return yield* Effect.fail(new Error(MCP_NO_USAGE_MESSAGE));
+      }
+
       const threadId = input.threadId ?? crypto.randomUUID();
       const { events, model, sandboxId } = yield* agent.promptThread({
         runId: `mcp-${crypto.randomUUID()}`,
