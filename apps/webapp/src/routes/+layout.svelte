@@ -197,8 +197,6 @@
 					<a class="bc-navLink" href="https://docs.btca.dev" target="_blank" rel="noreferrer">
 						Docs
 					</a>
-					<a class={`bc-navLink ${isActive('/cli') ? 'bc-navLink-active' : ''}`} href="/cli">CLI</a>
-					<a class={`bc-navLink ${isActive('/web') ? 'bc-navLink-active' : ''}`} href="/web">Web</a>
 					<a class={`bc-navLink ${isActive('/pricing') ? 'bc-navLink-active' : ''}`} href="/pricing"
 						>Pricing</a
 					>
@@ -259,12 +257,6 @@
 							<a class="bc-navLink" href="https://docs.btca.dev" target="_blank" rel="noreferrer">
 								Docs
 							</a>
-							<a class={`bc-navLink ${isActive('/cli') ? 'bc-navLink-active' : ''}`} href="/cli"
-								>CLI</a
-							>
-							<a class={`bc-navLink ${isActive('/web') ? 'bc-navLink-active' : ''}`} href="/web"
-								>Web</a
-							>
 							<a
 								class={`bc-navLink ${isActive('/pricing') ? 'bc-navLink-active' : ''}`}
 								href="/pricing">Pricing</a

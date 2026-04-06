@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Check, Loader2, Sparkles } from '@lucide/svelte';
+	import { Check, Loader2 } from '@lucide/svelte';
 	import { BILLING_PLAN } from '$lib/billing/plans';
 
 	type Props = {
@@ -17,17 +17,15 @@
 		isSignedIn = false,
 		onCheckout,
 		onSignIn,
-		usageHref = '/app/settings/usage',
+		usageHref = '/app/billing',
 		isRedirecting = false,
 		errorMessage = null
 	}: Props = $props();
 
 	const features = [
-		'More messages and ongoing usage',
-		'Dedicated sandbox for cloud repo work',
-		'Saved threads and project organization',
-		'Cloud MCP for coding tools',
-		'Priority support'
+		'Monthly usage allowance',
+		'Full web app access',
+		'MCP server access',
 	];
 
 	function handleAction() {
@@ -41,29 +39,7 @@
 	}
 </script>
 
-<div class="flex w-full flex-col gap-10">
-	<section class="bc-card bc-reveal relative overflow-hidden p-10" style="--delay: 40ms">
-		<div
-			class="absolute inset-0 bg-[radial-gradient(circle_at_top,_hsl(var(--bc-accent)/0.22),_transparent_55%)]"
-		></div>
-		<div class="relative z-10 flex flex-col gap-6">
-			<div class="flex items-center gap-3">
-				<div class="bc-logoMark">
-					<Sparkles size={20} />
-				</div>
-				<span class="bc-badge">Pro Plan</span>
-			</div>
-			<div class="max-w-2xl">
-				<h1 class="text-4xl font-semibold tracking-tight">
-					For developers who want grounded answers from real codebases
-				</h1>
-				<p class="bc-muted mt-3 text-base">
-					Search repos, save threads, and use btca as your codebase research layer.
-				</p>
-			</div>
-		</div>
-	</section>
-
+<div class="flex w-full flex-col">
 	<section class="grid gap-6 lg:grid-cols-2">
 		<div class="bc-card bc-reveal p-8" style="--delay: 60ms">
 			<div class="flex items-baseline justify-between">
@@ -74,26 +50,13 @@
 				</div>
 				<span class="bc-badge">Start here</span>
 			</div>
-			<p class="mt-4 text-sm font-medium">Try btca on a real codebase before you commit</p>
+			<p class="mt-4 text-sm font-medium">Try btca web</p>
 			<ul class="mt-6 grid gap-3 text-sm">
 				<li class="flex items-start gap-3">
 					<Check size={18} class="mt-0.5 text-[hsl(var(--bc-success))]" />
 					<span>One-time trial allowance</span>
 				</li>
-				<li class="flex items-start gap-3">
-					<Check size={18} class="mt-0.5 text-[hsl(var(--bc-success))]" />
-					<span>Grounded codebase search</span>
-				</li>
-				<li class="flex items-start gap-3">
-					<Check size={18} class="mt-0.5 text-[hsl(var(--bc-success))]" />
-					<span>Web app access with Claude Haiku 4.5</span>
-				</li>
 			</ul>
-			<div
-				class="bc-card mt-6 border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface-2))] p-4 text-xs"
-			>
-				Good for evaluating the workflow on a real repository without starting a subscription.
-			</div>
 		</div>
 
 		<div class="bc-card bc-reveal p-8" style="--delay: 90ms">
@@ -105,7 +68,7 @@
 				</div>
 				<span class="bc-badge">Cancel anytime</span>
 			</div>
-			<p class="mt-4 text-sm font-medium">For solo developers doing ongoing codebase research</p>
+			<p class="mt-4 text-sm font-medium">Deeper codebase research</p>
 			<ul class="mt-6 grid gap-3 text-sm">
 				{#each features as feature}
 					<li class="flex items-start gap-3">
@@ -114,12 +77,6 @@
 					</li>
 				{/each}
 			</ul>
-			<div
-				class="bc-card mt-6 border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface-2))] p-4 text-xs"
-			>
-				Usage is measured across model tokens and sandbox compute, and your allowance refreshes
-				each month.
-			</div>
 			{#if errorMessage}
 				<p class="mt-4 text-xs text-red-500">{errorMessage}</p>
 			{/if}

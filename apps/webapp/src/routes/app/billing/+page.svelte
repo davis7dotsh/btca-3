@@ -34,19 +34,17 @@
 
   const currentUserId = $derived(authContext.currentUser?.id ?? null);
   const isAuthenticated = $derived(authContext.status === "authenticated");
-  const currentPlanId = $derived(billingState?.currentPlan ?? FREE_BILLING_PLAN.id);
-  const usage = $derived(
-    billingState?.usage ?? {
-      granted: FREE_BILLING_PLAN.limits.usageUsd,
-      remaining: FREE_BILLING_PLAN.limits.usageUsd,
-      used: 0,
-      remainingPercentage: 100,
-      nextResetAt: null,
-      isLifetime: true,
-    },
-  );
+  const currentPlanId = $derived(billingState?.currentPlan ?? null);
+  const usage = $derived(billingState?.usage ?? null);
   const isFreePlan = $derived(currentPlanId === FREE_BILLING_PLAN.id);
-  const usageBarWidth = $derived(`width: ${usage.remainingPercentage}%`);
+  const currentPlanLabel = $derived(
+    currentPlanId === BILLING_PLAN.id
+      ? "Pro"
+      : currentPlanId === FREE_BILLING_PLAN.id
+        ? "Trial"
+        : null,
+  );
+  const usageBarWidth = $derived(usage ? `width: ${usage.remainingPercentage}%` : "width: 0%");
 
   const formatResetLabel = (nextResetAt: number | null, isLifetime: boolean) => {
     if (isLifetime || nextResetAt === null) {
@@ -75,6 +73,7 @@
 
     try {
       billingError = null;
+      billingState = null;
       const response = await fetch("/api/billing", {
         cache: "no-store",
         headers: {
@@ -180,68 +179,135 @@
     {/if}
 
     <section class="bc-card grid gap-6 p-6 lg:grid-cols-[1.35fr_0.85fr]">
-      <div class="space-y-6">
-        <div class="space-y-2">
-          <p class="text-sm font-medium text-[hsl(var(--bc-fg-muted))]">
-            {usage.isLifetime ? "Lifetime usage limit" : "Monthly usage limit"}
+      {#if isLoading && !billingState}
+        <div class="space-y-6">
+          <div class="space-y-3">
+            <div class="h-4 w-40 animate-pulse rounded-full bg-white/10"></div>
+            <div class="h-14 w-52 animate-pulse rounded-2xl bg-white/10"></div>
+          </div>
+
+          <div class="space-y-3">
+            <div class="h-5 overflow-hidden rounded-full bg-white/10">
+              <div class="h-full w-2/5 animate-pulse rounded-full bg-white/15"></div>
+            </div>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="h-4 w-52 animate-pulse rounded-full bg-white/10"></div>
+              <div class="h-4 w-36 animate-pulse rounded-full bg-white/10"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex h-full flex-col justify-between gap-6 p-1">
+          <div class="space-y-3">
+            <div class="h-4 w-24 animate-pulse rounded-full bg-white/10"></div>
+            <div class="h-9 w-28 animate-pulse rounded-full bg-white/10"></div>
+            <div class="h-12 w-full max-w-xs animate-pulse rounded-2xl bg-white/10"></div>
+          </div>
+
+          <div class="mt-6 flex flex-col gap-3">
+            <button type="button" class="bc-btn bc-btn-primary w-full justify-center" disabled>
+              Loading billing...
+            </button>
+
+            <button type="button" class="bc-btn w-full justify-center" disabled>
+              Loading portal...
+            </button>
+          </div>
+        </div>
+      {:else if usage && currentPlanLabel}
+        <div class="space-y-6">
+          <div class="space-y-2">
+            <p class="text-sm font-medium text-[hsl(var(--bc-fg-muted))]">
+              {usage.isLifetime ? "Lifetime usage limit" : "Monthly usage limit"}
+            </p>
+            <div class="flex flex-wrap items-end gap-3">
+              <p class="text-5xl font-semibold tracking-tight">{usage.remainingPercentage}%</p>
+              <p class="pb-1 text-2xl text-[hsl(var(--bc-fg-muted))]">remaining</p>
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            <div class="h-5 overflow-hidden rounded-full bg-white/15">
+              <div
+                class="h-full rounded-full bg-emerald-500 transition-[width] duration-500 ease-out"
+                style={usageBarWidth}
+              ></div>
+            </div>
+            <div class="flex flex-wrap items-center justify-between gap-3 text-sm text-[hsl(var(--bc-fg-muted))]">
+              <p>{usage.remainingPercentage}% of your allowance remaining</p>
+              <p>{formatResetLabel(usage.nextResetAt, usage.isLifetime)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex h-full flex-col justify-between p-1">
+          <p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">
+            Current plan
           </p>
-          <div class="flex flex-wrap items-end gap-3">
-            <p class="text-5xl font-semibold tracking-tight">{usage.remainingPercentage}%</p>
-            <p class="pb-1 text-2xl text-[hsl(var(--bc-fg-muted))]">remaining</p>
+          <h2 class="mt-3 text-2xl font-semibold">{currentPlanLabel}</h2>
+          <p class="bc-muted mt-2 text-sm">
+            {isFreePlan
+              ? "A one-time allowance to evaluate btca on a real codebase."
+              : "A monthly allowance with hosted checkout and self-serve billing management."}
+          </p>
+
+          <div class="mt-6 flex flex-col gap-3">
+            <button
+              type="button"
+              class="bc-btn bc-btn-primary w-full justify-center"
+              onclick={() => runBillingAction("checkout")}
+              disabled={!isAuthenticated || checkoutPending || billingState?.hasPaidPlan}
+            >
+              {#if checkoutPending}
+                Starting checkout...
+              {:else if billingState?.hasPaidPlan}
+                Pro active
+              {:else}
+                Upgrade to Pro
+              {/if}
+            </button>
+
+            <button
+              type="button"
+              class="bc-btn w-full justify-center"
+              onclick={() => runBillingAction("portal")}
+              disabled={!isAuthenticated || portalPending || !billingState?.hasPaidPlan}
+            >
+              {portalPending ? "Opening portal..." : "Manage billing"}
+            </button>
           </div>
         </div>
-
-        <div class="space-y-3">
-          <div class="h-5 overflow-hidden rounded-full bg-white/15">
-            <div
-              class="h-full rounded-full bg-emerald-500 transition-[width] duration-500 ease-out"
-              style={usageBarWidth}
-            ></div>
-          </div>
-          <div class="flex flex-wrap items-center justify-between gap-3 text-sm text-[hsl(var(--bc-fg-muted))]">
-            <p>{usage.remainingPercentage}% of your allowance remaining</p>
-            <p>{formatResetLabel(usage.nextResetAt, usage.isLifetime)}</p>
-          </div>
+      {:else}
+        <div class="space-y-4">
+          <p class="text-sm font-medium text-[hsl(var(--bc-fg-muted))]">Usage summary</p>
+          <p class="text-3xl font-semibold tracking-tight">Usage unavailable</p>
+          <p class="bc-muted max-w-xl text-sm">
+            We could not load billing usage yet. Refresh the page or try again in a moment.
+          </p>
         </div>
-      </div>
 
-      <div class="flex h-full flex-col justify-between p-1">
-        <p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">
-          Current plan
-        </p>
-        <h2 class="mt-3 text-2xl font-semibold">{isFreePlan ? "Trial" : "Pro"}</h2>
-        <p class="bc-muted mt-2 text-sm">
-          {isFreePlan
-            ? "A one-time allowance to evaluate btca on a real codebase."
-            : "A monthly allowance with hosted checkout and self-serve billing management."}
-        </p>
+        <div class="flex h-full flex-col justify-between gap-6 p-1">
+          <div class="space-y-3">
+            <p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">
+              Current plan
+            </p>
+            <h2 class="text-2xl font-semibold">Unavailable</h2>
+            <p class="bc-muted text-sm">
+              Billing actions will be available once your billing state loads.
+            </p>
+          </div>
 
-        <div class="mt-6 flex flex-col gap-3">
-          <button
-            type="button"
-            class="bc-btn bc-btn-primary w-full justify-center"
-            onclick={() => runBillingAction("checkout")}
-            disabled={!isAuthenticated || checkoutPending || billingState?.hasPaidPlan}
-          >
-            {#if checkoutPending}
-              Starting checkout...
-            {:else if billingState?.hasPaidPlan}
-              Pro active
-            {:else}
+          <div class="mt-6 flex flex-col gap-3">
+            <button type="button" class="bc-btn bc-btn-primary w-full justify-center" disabled>
               Upgrade to Pro
-            {/if}
-          </button>
+            </button>
 
-          <button
-            type="button"
-            class="bc-btn w-full justify-center"
-            onclick={() => runBillingAction("portal")}
-            disabled={!isAuthenticated || portalPending || !billingState?.hasPaidPlan}
-          >
-            {portalPending ? "Opening portal..." : "Manage billing"}
-          </button>
+            <button type="button" class="bc-btn w-full justify-center" disabled>
+              Manage billing
+            </button>
+          </div>
         </div>
-      </div>
+      {/if}
     </section>
 
     <section class="grid gap-6 lg:grid-cols-2">

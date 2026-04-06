@@ -19,12 +19,8 @@
 			<span>Pricing</span>
 		</div>
 		<h1 class="bc-h1 text-balance text-5xl sm:text-6xl">
-			Simple pricing for grounded codebase research.
+			Search git repos, npm packages, the web, and more.
 		</h1>
-		<p class="bc-prose max-w-2xl text-pretty text-base sm:text-lg">
-			Use btca in the web app to search codebases, save threads, and connect coding tools through
-			Cloud MCP.
-		</p>
 	</header>
 
 	<div class="mx-auto w-full max-w-5xl">

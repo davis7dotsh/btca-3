@@ -12,7 +12,6 @@
 		PanelLeftClose,
 		Plus,
 		Server,
-		Settings,
 		Sun,
 		Trash2
 	} from '@lucide/svelte';
@@ -75,7 +74,6 @@
 	const chatPath = resolve('/app/chat');
 	const mcpPath = resolve('/app/mcp');
 	const resourcesPath = resolve('/app/resources');
-	const settingsPath = resolve('/app/settings');
 	const billingPath = resolve('/app/billing');
 	const appHomePath = resolve('/app');
 	const isOnPiChat = $derived(
@@ -382,7 +380,7 @@
 			<div class="min-w-0 flex-1">
 				<div class="truncate text-sm font-medium">{displayName}</div>
 				<div class="truncate text-[11px] text-[hsl(var(--bc-fg-muted))]">
-					Account and preferences
+					Workspace shortcuts
 				</div>
 			</div>
 			<ChevronDown
@@ -403,10 +401,6 @@
 				<a href={mcpPath} class="user-menu-item" onclick={() => (userMenuOpen = false)}>
 					<Server size={14} />
 					MCP
-				</a>
-				<a href={settingsPath} class="user-menu-item" onclick={() => (userMenuOpen = false)}>
-					<Settings size={14} />
-					Settings
 				</a>
 				<a href={billingPath} class="user-menu-item" onclick={() => (userMenuOpen = false)}>
 					<CreditCard size={14} />

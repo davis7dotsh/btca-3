@@ -10,7 +10,6 @@
 		Plus,
 		Search,
 		Server,
-		Settings,
 		Sun
 	} from '@lucide/svelte';
 	import { goto } from '$app/navigation';
@@ -159,17 +158,6 @@
 				icon: Server,
 				onSelect: () => {
 					void goto(resolve('/app/mcp'));
-					onClose();
-				}
-			},
-			{
-				id: 'go-settings',
-				group: 'Navigate',
-				label: 'Settings',
-				sublabel: 'App preferences and account config',
-				icon: Settings,
-				onSelect: () => {
-					void goto(resolve('/app/settings'));
 					onClose();
 				}
 			},
