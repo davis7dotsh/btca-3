@@ -98,7 +98,6 @@ export interface StoredAgentThread {
   readonly lastPromptAt: number;
   readonly lastCompletedAt: number | null;
   readonly messageCount: number;
-  readonly userMessageCount: number;
 }
 
 export interface StoredAgentThreadMessage {
@@ -143,7 +142,6 @@ export interface AgentThreadListItem {
   readonly lastPromptAt: number;
   readonly lastCompletedAt: number | null;
   readonly messageCount: number;
-  readonly userMessageCount: number;
 }
 
 export interface AgentPromptStreamError {

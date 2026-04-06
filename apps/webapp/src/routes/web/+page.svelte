@@ -26,7 +26,7 @@
 		</p>
 
 		<div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-			<a href="/app" class="bc-chip bc-btnPrimary justify-center">Try the web app</a>
+			<a href="/app/chat" class="bc-chip bc-btnPrimary justify-center">Try the web app</a>
 			<a href="/pricing" class="bc-chip justify-center">View pricing</a>
 		</div>
 	</header>
@@ -101,7 +101,7 @@
 				</p>
 			</div>
 			<div class="flex flex-wrap gap-3">
-				<a href="/app" class="bc-chip bc-btnPrimary">Try the web app</a>
+				<a href="/app/chat" class="bc-chip bc-btnPrimary">Try the web app</a>
 				<a href="/pricing" class="bc-chip">View pricing</a>
 			</div>
 		</div>

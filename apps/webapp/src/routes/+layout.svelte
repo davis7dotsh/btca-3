@@ -13,7 +13,7 @@
 	let appNavigationPending = $state(false);
 	let appPreloadPromise: Promise<unknown> | null = null;
 
-	const appEntryPath = resolve('/app');
+	const appEntryPath = resolve('/app/chat');
 
 	const isAppRoute = $derived(page.url.pathname.startsWith('/app'));
 	const pathname = $derived(page.url.pathname);
@@ -203,7 +203,7 @@
 				</nav>
 
 				<div class="flex items-center gap-2">
-					<a href="/app" class="bc-chip bc-btnPrimary hidden sm:inline-flex">Try the web app</a>
+					<a href="/app/chat" class="bc-chip bc-btnPrimary hidden sm:inline-flex">Try the web app</a>
 
 					<a
 						class="bc-chip hidden sm:inline-flex"
@@ -261,7 +261,7 @@
 								class={`bc-navLink ${isActive('/pricing') ? 'bc-navLink-active' : ''}`}
 								href="/pricing">Pricing</a
 							>
-							<a class="bc-navLink" href="/app">Try the web app</a>
+							<a class="bc-navLink" href="/app/chat">Try the web app</a>
 							<a
 								class="bc-navLink"
 								href="https://github.com/bmdavis419/better-context"

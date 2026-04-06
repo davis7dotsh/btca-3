@@ -52,8 +52,6 @@
 	interface ResourceListItem {
 		id: string;
 		name: string;
-		createdAt: number;
-		updatedAt: number;
 		itemCount: number;
 	}
 
@@ -1072,7 +1070,17 @@
 	let hasLoggedResourceLoadStart = false;
 	let pendingDefaultModelId = $state<AgentModelId | null>(null);
 	let pendingThreadModelIds = $state<Record<string, AgentModelId>>({});
-	let pendingInitialBottomScrollThreadId = $state<string | null>(page.params.id ?? null);
+	let pendingInitialTopScrollThreadId = $state<string | null>(page.params.id ?? null);
+	const needsResourceCatalog = $derived.by(() => {
+		if (mentionState !== null) {
+			return true;
+		}
+
+		return messages.some(
+			(message) =>
+				message.role === 'user' && extractTaggedResourceNames(message.content).length > 0
+		);
+	});
 
 	const threadQuery: QueryState<
 		| {
@@ -1120,14 +1128,12 @@
 		{
 			id: string;
 			name: string;
-			createdAt: number;
-			updatedAt: number;
 			itemCount: number;
 		}[]
 	> = browser
 		? useQuery(
 				api.authed.resources.list,
-				() => (authContext.currentUser ? {} : 'skip'),
+				() => (authContext.currentUser && needsResourceCatalog ? {} : 'skip'),
 				() => ({ keepPreviousData: true })
 			)
 		: {
@@ -1314,7 +1320,7 @@
 
 		resetTransientConversationState({ clearDraft: false });
 		threadId = routeThreadId;
-		pendingInitialBottomScrollThreadId = routeThreadId;
+		pendingInitialTopScrollThreadId = routeThreadId;
 		restoreThreadMessages(routeThreadId);
 	});
 
@@ -1399,7 +1405,7 @@
 	});
 
 	$effect(() => {
-		if (!authContext.currentUser) {
+		if (!authContext.currentUser || !needsResourceCatalog) {
 			hasLoggedResourceLoadStart = false;
 			return;
 		}
@@ -1457,7 +1463,7 @@
 		if (
 			!scrollContainer ||
 			!threadId ||
-			pendingInitialBottomScrollThreadId !== threadId ||
+			pendingInitialTopScrollThreadId !== threadId ||
 			isStreaming
 		) {
 			return;
@@ -1468,14 +1474,14 @@
 				if (
 					!scrollContainer ||
 					!threadId ||
-					pendingInitialBottomScrollThreadId !== threadId ||
+					pendingInitialTopScrollThreadId !== threadId ||
 					messages.length === 0
 				) {
 					return;
 				}
 
-				scrollToBottom('auto');
-				pendingInitialBottomScrollThreadId = null;
+				scrollContainer.scrollTo({ top: 0, behavior: 'auto' });
+				pendingInitialTopScrollThreadId = null;
 			});
 			return;
 		}
@@ -1485,7 +1491,7 @@
 			resolvedThreadData?.thread.threadId === threadId &&
 			resolvedThreadData.thread.messageCount === 0
 		) {
-			pendingInitialBottomScrollThreadId = null;
+			pendingInitialTopScrollThreadId = null;
 		}
 	});
 

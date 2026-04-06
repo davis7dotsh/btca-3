@@ -56,9 +56,7 @@
 				error: null
 			};
 
-	const selectedThreadId = $derived(
-		page.url.searchParams.get('thread') ?? mcpThreadsQuery.data?.[0]?.threadId ?? null
-	);
+	const selectedThreadId = $derived(page.url.searchParams.get('thread'));
 
 	const threadQuery: QueryState<
 		| {
@@ -285,12 +283,10 @@
 						<div
 							class="flex items-center justify-between text-[11px] text-[hsl(var(--bc-fg-muted))]"
 						>
-							<span>{thread.messageCount} messages</span>
 							<span
 								>{thread.sandboxId
 									? `Sandbox ${thread.sandboxId.slice(0, 8)}`
-									: 'Sandbox pending'}</span
-							>
+									: 'Sandbox pending'}</span>
 						</div>
 					</button>
 				{/each}
@@ -339,10 +335,6 @@
 					<div class="bc-card p-3">
 						<p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">Last Updated</p>
 						<p class="mt-2 text-[hsl(var(--bc-fg))]">{formatFullDate(selectedThread.updatedAt)}</p>
-					</div>
-					<div class="bc-card p-3">
-						<p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">Messages</p>
-						<p class="mt-2 text-[hsl(var(--bc-fg))]">{selectedThread.messageCount}</p>
 					</div>
 					<div class="bc-card p-3">
 						<p class="text-sm font-semibold text-[hsl(var(--bc-fg-muted))]">Sandbox</p>

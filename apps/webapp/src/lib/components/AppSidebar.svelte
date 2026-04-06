@@ -75,7 +75,7 @@
 	const mcpPath = resolve('/app/mcp');
 	const resourcesPath = resolve('/app/resources');
 	const billingPath = resolve('/app/billing');
-	const appHomePath = resolve('/app');
+	const appHomePath = resolve('/app/chat');
 	const isOnPiChat = $derived(
 		page.url.pathname === chatPath || page.url.pathname.startsWith(`${chatPath}/`)
 	);
@@ -310,7 +310,6 @@
 								</span>
 							{/if}
 							<span>{formatTimestamp(thread.updatedAt)}</span>
-							<span>{thread.userMessageCount} msgs</span>
 							{#if thread.isMcp}
 								<span
 									class="inline-flex items-center border border-[hsl(var(--bc-border))] bg-[hsl(var(--bc-surface))] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.14em] text-[hsl(var(--bc-accent))] uppercase"

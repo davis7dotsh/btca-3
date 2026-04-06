@@ -88,7 +88,7 @@
 		</p>
 
 		<div class="flex flex-col gap-3 sm:flex-row sm:items-center bc-reveal" style="--delay: 230ms">
-			<a href="/app" class="bc-chip bc-btnPrimary justify-center">Try the web app</a>
+			<a href="/app/chat" class="bc-chip bc-btnPrimary justify-center">Try the web app</a>
 			<a
 				href="https://docs.btca.dev/guides/quickstart"
 				class="bc-chip justify-center"

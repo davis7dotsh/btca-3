@@ -88,10 +88,10 @@
 		)
 			.slice(0, maxVisibleThreads)
 			.map((thread) => ({
-				id: `thread-${thread.threadId}`,
-				group: 'Threads',
-				label: thread.title?.trim() || `Thread ${thread.threadId.slice(0, 8)}`,
-				sublabel: `${thread.userMessageCount} msgs · ${timestampFormatter.format(thread.updatedAt)}`,
+					id: `thread-${thread.threadId}`,
+					group: 'Threads',
+					label: thread.title?.trim() || `Thread ${thread.threadId.slice(0, 8)}`,
+					sublabel: `Updated ${timestampFormatter.format(thread.updatedAt)}`,
 				icon: MessageSquare,
 				onSelect: () => {
 					void goto(resolve(`/app/chat/${encodeURIComponent(thread.threadId)}`), {
