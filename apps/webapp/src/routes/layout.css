@@ -1258,6 +1258,16 @@
     font-size: 11px;
   }
 
+  .activity-block {
+    margin: 0;
+  }
+
+  .activity-block-panel {
+    display: grid;
+    gap: 2px;
+    padding: 2px 0 0 18px;
+  }
+
   .tool-group {
     margin: 0;
   }

@@ -142,6 +142,20 @@
 	}
 
 	type MessageSegment = TextSegment | ReasoningSegment | ToolGroupSegment;
+
+	interface TextBlock {
+		type: 'text';
+		segment: TextSegment;
+	}
+
+	interface ActivityBlock {
+		type: 'activity';
+		segments: (ReasoningSegment | ToolGroupSegment)[];
+		key: string;
+	}
+
+	type MessageBlock = TextBlock | ActivityBlock;
+
 	type AttachmentId = Id<'v2_agentThreadAttachments'>;
 	type AttachmentStatus = 'uploading' | 'pending' | 'attached' | 'removing';
 
@@ -731,6 +745,96 @@
 	const getReasoningLabel = (part: ReasoningPart) =>
 		part.status === 'running' ? 'Reasoning summary' : 'Reasoning';
 
+	const groupIntoBlocks = (segments: MessageSegment[]): MessageBlock[] => {
+		const blocks: MessageBlock[] = [];
+
+		for (const segment of segments) {
+			if (segment.type === 'text') {
+				blocks.push({ type: 'text', segment });
+			} else {
+				const lastBlock = blocks[blocks.length - 1];
+
+				if (lastBlock?.type === 'activity') {
+					lastBlock.segments.push(segment);
+				} else {
+					const key =
+						segment.type === 'reasoning'
+							? `activity-${segment.part.id}`
+							: `activity-${getToolGroupKey(segment.tools)}`;
+					blocks.push({ type: 'activity', segments: [segment], key });
+				}
+			}
+		}
+
+		return blocks;
+	};
+
+	const getActivityBlockStatus = (
+		segments: (ReasoningSegment | ToolGroupSegment)[]
+	): ToolStatus => {
+		for (const seg of segments) {
+			if (seg.type === 'reasoning' && seg.part.status === 'running') return 'running';
+			if (seg.type === 'tool_group' && seg.tools.some((t) => t.status === 'running'))
+				return 'running';
+		}
+		for (const seg of segments) {
+			if (seg.type === 'tool_group' && seg.tools.some((t) => t.status === 'error'))
+				return 'error';
+		}
+		return 'done';
+	};
+
+	const getActivityBlockLabel = (
+		segments: (ReasoningSegment | ToolGroupSegment)[]
+	): string => {
+		const allTools = segments.flatMap((s) => (s.type === 'tool_group' ? s.tools : []));
+		const runningTools = allTools.filter((t) => t.status === 'running');
+		const hasRunningReasoning = segments.some(
+			(s) => s.type === 'reasoning' && s.part.status === 'running'
+		);
+
+		if (runningTools.length > 0) {
+			const last = runningTools[runningTools.length - 1];
+			if (last.toolType === 'read_file') return 'Reading a file...';
+			if (last.toolType === 'exec_command') return 'Running a command...';
+			return `Running ${last.toolType === 'unknown' ? last.toolName : 'tool'}...`;
+		}
+
+		if (hasRunningReasoning) return 'Reasoning...';
+
+		const parts: string[] = [];
+		const hasReasoning = segments.some((s) => s.type === 'reasoning');
+		if (hasReasoning) parts.push('Reasoning');
+
+		const readCount = allTools.filter((t) => t.toolType === 'read_file').length;
+		const execCount = allTools.filter((t) => t.toolType === 'exec_command').length;
+		const otherCount = allTools.filter((t) => t.toolType === 'unknown').length;
+
+		if (readCount > 0) parts.push(readCount === 1 ? 'Read a file' : `Read ${readCount} files`);
+		if (execCount > 0)
+			parts.push(execCount === 1 ? 'Ran a command' : `Ran ${execCount} commands`);
+		if (otherCount > 0)
+			parts.push(otherCount === 1 ? '1 other tool' : `${otherCount} other tools`);
+
+		return parts.join(', ') || 'Activity';
+	};
+
+	const getActivityBlockItemCount = (
+		segments: (ReasoningSegment | ToolGroupSegment)[]
+	): number => {
+		let count = 0;
+		for (const seg of segments) {
+			if (seg.type === 'tool_group') count += seg.tools.length;
+			else count += 1;
+		}
+		return count;
+	};
+
+	const getBlockKey = (block: MessageBlock): string => {
+		if (block.type === 'text') return block.segment.part.id;
+		return block.key;
+	};
+
 	const getReadFileLines = (details: SandboxReadFileResult | null) => {
 		if (!details || details.content.length === 0 || details.lineEnd < details.lineStart) {
 			return [];
@@ -1043,6 +1147,7 @@
 	let toolExpanded = $state<Record<string, boolean>>({});
 	let toolGroupExpanded = $state<Record<string, boolean>>({});
 	let reasoningExpanded = $state<Record<string, boolean>>({});
+	let activityBlockExpanded = $state<Record<string, boolean>>({});
 	let composer = $state<HTMLTextAreaElement | null>(null);
 	let scrollContainer = $state<HTMLDivElement | null>(null);
 	let messageCopyState = $state<Record<string, CopyStatus>>({});
@@ -1593,6 +1698,7 @@
 		toolExpanded = {};
 		toolGroupExpanded = {};
 		reasoningExpanded = {};
+		activityBlockExpanded = {};
 		messageCopyState = {};
 		fullThreadCopyState = 'idle';
 
@@ -2077,6 +2183,13 @@
 		reasoningExpanded = {
 			...reasoningExpanded,
 			[reasoningId]: !reasoningExpanded[reasoningId]
+		};
+	}
+
+	function toggleActivityBlock(key: string) {
+		activityBlockExpanded = {
+			...activityBlockExpanded,
+			[key]: !activityBlockExpanded[key]
 		};
 	}
 
@@ -3041,6 +3154,7 @@
 		toolExpanded = {};
 		toolGroupExpanded = {};
 		reasoningExpanded = {};
+		activityBlockExpanded = {};
 		messageCopyState = {};
 		fullThreadCopyState = 'idle';
 	}
@@ -3584,230 +3698,283 @@
 							</div>
 
 							<div class="assistant-sections">
-								{#each groupMessageParts(message.parts) as segment (segment.type === 'text' || segment.type === 'reasoning' ? segment.part.id : getToolGroupKey(segment.tools))}
-									{#if segment.type === 'text'}
-										<div class="assistant-section assistant-section-text">
-											<MarkdownMessage content={segment.part.content} />
-										</div>
-									{:else if segment.type === 'reasoning'}
-										<div class="assistant-section tool-group">
-										<button
-											type="button"
-											class="tool-group-bar"
-											onclick={() => toggleReasoning(segment.part.id)}
-										>
-											<div class="tool-group-bar-left">
-												<span
-													class={`tool-dot ${segment.part.status === 'running' ? 'tool-dot-pending' : 'tool-dot-completed'}`}
-												></span>
-												<span class="tool-group-bar-label">
-													{getReasoningLabel(segment.part)}
-												</span>
-											</div>
-											<div class="tool-group-bar-right">
-											<svg
-												class:rotate-180={reasoningExpanded[segment.part.id]}
-												class="tool-group-chevron"
-												width="14"
-												height="14"
-												viewBox="0 0 24 24"
-												fill="none"
-												stroke="currentColor"
-												stroke-width="2.25"
-												stroke-linecap="round"
-												stroke-linejoin="round"
+								{#snippet segmentView(segment: ReasoningSegment | ToolGroupSegment, nested: boolean)}
+									{#if segment.type === 'reasoning'}
+										<div class={nested ? 'tool-group' : 'assistant-section tool-group'}>
+											<button
+												type="button"
+												class="tool-group-bar"
+												onclick={() => toggleReasoning(segment.part.id)}
 											>
-												<path d="m6 9 6 6 6-6" />
-											</svg>
-											</div>
-										</button>
+												<div class="tool-group-bar-left">
+													<span
+														class={`tool-dot ${segment.part.status === 'running' ? 'tool-dot-pending' : 'tool-dot-completed'}`}
+													></span>
+													<span class="tool-group-bar-label">
+														{getReasoningLabel(segment.part)}
+													</span>
+												</div>
+												<div class="tool-group-bar-right">
+													<svg
+														class:rotate-180={reasoningExpanded[segment.part.id]}
+														class="tool-group-chevron"
+														width="14"
+														height="14"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2.25"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
+														<path d="m6 9 6 6 6-6" />
+													</svg>
+												</div>
+											</button>
 
-										{#if reasoningExpanded[segment.part.id]}
-											<div
-												class="tool-group-panel"
-												transition:slide={{ duration: 150 }}
-											>
-												<p class="text-sm leading-6 whitespace-pre-wrap text-[hsl(var(--bc-fg-muted))]">
-													{segment.part.content || 'Waiting for reasoning summary...'}
-												</p>
-											</div>
-										{/if}
-									</div>
+											{#if reasoningExpanded[segment.part.id]}
+												<div
+													class="tool-group-panel"
+													transition:slide={{ duration: 150 }}
+												>
+													<p class="text-sm leading-6 whitespace-pre-wrap text-[hsl(var(--bc-fg-muted))]">
+														{segment.part.content || 'Waiting for reasoning summary...'}
+													</p>
+												</div>
+											{/if}
+										</div>
 									{:else}
 										{@const groupKey = getToolGroupKey(segment.tools)}
 										{@const groupStatus = getToolGroupStatus(segment.tools)}
-										<div class={`assistant-section tool-group ${getToolGroupTypeClass(segment.tools)}`}>
-										<button
-											type="button"
-											class="tool-group-bar"
-											onclick={() => toggleToolGroup(groupKey)}
-										>
-											<div class="tool-group-bar-left">
-												<span
-													class={`tool-dot ${groupStatus === 'running' ? 'tool-dot-pending' : groupStatus === 'error' ? 'tool-dot-error' : 'tool-dot-completed'}`}
-												></span>
-												<span class="tool-group-bar-label">
-													{getToolGroupLabel(segment.tools)}
-												</span>
-											</div>
-											<div class="tool-group-bar-right">
-												<span class="tool-group-bar-count">
-													{segment.tools.length}
-													{segment.tools.length === 1 ? 'call' : 'calls'}
-												</span>
-												<svg
-													class="tool-group-chevron"
-													class:tool-group-chevron-open={toolGroupExpanded[groupKey]}
-													width="12"
-													height="12"
-													viewBox="0 0 24 24"
-													fill="none"
-													stroke="currentColor"
-													stroke-width="2.5"
-													stroke-linecap="round"
-													stroke-linejoin="round"
-												>
-													<path d="m6 9 6 6 6-6" />
-												</svg>
-											</div>
-										</button>
-
-										{#if toolGroupExpanded[groupKey]}
-											<div class="tool-group-panel" transition:slide={{ duration: 150 }}>
-												{#each segment.tools as tool (tool.id)}
-													<div
-														class={`tool-card ${toolExpanded[tool.id] ? 'tool-card-open' : ''} ${getToolTypeClass(tool)}`}
+										<div class={`${nested ? '' : 'assistant-section '}tool-group ${getToolGroupTypeClass(segment.tools)}`}>
+											<button
+												type="button"
+												class="tool-group-bar"
+												onclick={() => toggleToolGroup(groupKey)}
+											>
+												<div class="tool-group-bar-left">
+													<span
+														class={`tool-dot ${groupStatus === 'running' ? 'tool-dot-pending' : groupStatus === 'error' ? 'tool-dot-error' : 'tool-dot-completed'}`}
+													></span>
+													<span class="tool-group-bar-label">
+														{getToolGroupLabel(segment.tools)}
+													</span>
+												</div>
+												<div class="tool-group-bar-right">
+													<span class="tool-group-bar-count">
+														{segment.tools.length}
+														{segment.tools.length === 1 ? 'call' : 'calls'}
+													</span>
+													<svg
+														class="tool-group-chevron"
+														class:tool-group-chevron-open={toolGroupExpanded[groupKey]}
+														width="12"
+														height="12"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2.5"
+														stroke-linecap="round"
+														stroke-linejoin="round"
 													>
-														<button
-															type="button"
-															class="tool-card-header"
-															onclick={() => toggleTool(tool.id)}
+														<path d="m6 9 6 6 6-6" />
+													</svg>
+												</div>
+											</button>
+
+											{#if toolGroupExpanded[groupKey]}
+												<div class="tool-group-panel" transition:slide={{ duration: 150 }}>
+													{#each segment.tools as tool (tool.id)}
+														<div
+															class={`tool-card ${toolExpanded[tool.id] ? 'tool-card-open' : ''} ${getToolTypeClass(tool)}`}
 														>
-															<div class="tool-card-summary">
-																<span
-																	class={`tool-dot ${tool.status === 'running' ? 'tool-dot-pending' : tool.status === 'error' ? 'tool-dot-error' : 'tool-dot-completed'}`}
-																></span>
-																<div class="space-y-1 text-left">
-																	<div class="tool-inline-name">
-																		{getToolLabel(tool)}
-																	</div>
-																	<div class="bc-muted text-xs">
-																		{getToolSummary(tool)}
+															<button
+																type="button"
+																class="tool-card-header"
+																onclick={() => toggleTool(tool.id)}
+															>
+																<div class="tool-card-summary">
+																	<span
+																		class={`tool-dot ${tool.status === 'running' ? 'tool-dot-pending' : tool.status === 'error' ? 'tool-dot-error' : 'tool-dot-completed'}`}
+																	></span>
+																	<div class="space-y-1 text-left">
+																		<div class="tool-inline-name">
+																			{getToolLabel(tool)}
+																		</div>
+																		<div class="bc-muted text-xs">
+																			{getToolSummary(tool)}
+																		</div>
 																	</div>
 																</div>
-															</div>
-															<div class="tool-card-toggle">
-																{toolExpanded[tool.id] ? 'Hide' : 'Show'}
-															</div>
-														</button>
+																<div class="tool-card-toggle">
+																	{toolExpanded[tool.id] ? 'Hide' : 'Show'}
+																</div>
+															</button>
 
-														{#if toolExpanded[tool.id]}
-															<div class="tool-card-body">
-																{#if tool.toolType === 'read_file'}
-																	<div class="tool-meta-grid">
-																		<div>
-																			<div class="tool-meta-label">Path</div>
-																			<div class="tool-meta-value">
-																				{tool.details?.path ?? tool.args?.path ?? 'Unknown file'}
-																			</div>
-																		</div>
-																		<div>
-																			<div class="tool-meta-label">Range</div>
-																			<div class="tool-meta-value">
-																				{getReadFileMeta(tool.details)}
-																			</div>
-																		</div>
-																	</div>
-
-																	{#if tool.details && getReadFileLines(tool.details).length > 0}
-																		<div class="tool-file-view bc-scrollbar">
-																			{#each getReadFileLines(tool.details) as line (line.number)}
-																				<div class="tool-file-line">
-																					<span class="tool-file-gutter">{line.number}</span>
-																					<code class="tool-file-code">{line.content || ' '}</code>
+															{#if toolExpanded[tool.id]}
+																<div class="tool-card-body">
+																	{#if tool.toolType === 'read_file'}
+																		<div class="tool-meta-grid">
+																			<div>
+																				<div class="tool-meta-label">Path</div>
+																				<div class="tool-meta-value">
+																					{tool.details?.path ?? tool.args?.path ?? 'Unknown file'}
 																				</div>
-																			{/each}
+																			</div>
+																			<div>
+																				<div class="tool-meta-label">Range</div>
+																				<div class="tool-meta-value">
+																					{getReadFileMeta(tool.details)}
+																				</div>
+																			</div>
 																		</div>
+
+																		{#if tool.details && getReadFileLines(tool.details).length > 0}
+																			<div class="tool-file-view bc-scrollbar">
+																				{#each getReadFileLines(tool.details) as line (line.number)}
+																					<div class="tool-file-line">
+																						<span class="tool-file-gutter">{line.number}</span>
+																						<code class="tool-file-code">{line.content || ' '}</code>
+																					</div>
+																				{/each}
+																			</div>
+																		{:else}
+																			<div class="tool-empty-state">
+																				{tool.content || 'No file content returned.'}
+																			</div>
+																		{/if}
+																	{:else if tool.toolType === 'exec_command'}
+																		<div class="tool-meta-grid">
+																			<div class="tool-meta-span">
+																				<div class="tool-meta-label">Command</div>
+																				<div class="tool-meta-value">
+																					{tool.details?.command ??
+																						tool.args?.command ??
+																						'Unknown command'}
+																				</div>
+																			</div>
+																			<div>
+																				<div class="tool-meta-label">Working directory</div>
+																				<div class="tool-meta-value">
+																					{tool.details?.cwd ?? tool.args?.cwd ?? '/workspace'}
+																				</div>
+																			</div>
+																			<div>
+																				<div class="tool-meta-label">Exit code</div>
+																				<div class="tool-meta-value">
+																					{tool.details?.exitCode ?? 'unknown'}
+																				</div>
+																			</div>
+																		</div>
+
+																		{#if tool.details?.stdout}
+																			<div class="tool-output-block">
+																				<div class="tool-output-label">stdout</div>
+																				<pre class="tool-output-pre bc-scrollbar">{tool.details
+																						.stdout}</pre>
+																			</div>
+																		{/if}
+
+																		{#if tool.details?.stderr}
+																			<div class="tool-output-block">
+																				<div class="tool-output-label">stderr</div>
+																				<pre class="tool-output-pre bc-scrollbar">{tool.details
+																						.stderr}</pre>
+																			</div>
+																		{/if}
+
+																		{#if !tool.details?.stdout && !tool.details?.stderr}
+																			<div class="tool-output-block">
+																				<div class="tool-output-label">output</div>
+																				<pre class="tool-output-pre bc-scrollbar">
+																						{tool.content || 'No command output returned.'}
+																					</pre>
+																			</div>
+																		{/if}
 																	{:else}
-																		<div class="tool-empty-state">
-																			{tool.content || 'No file content returned.'}
+																		<div class="tool-output-block">
+																			<div class="tool-output-label">Arguments</div>
+																			<pre class="tool-output-pre bc-scrollbar">{prettyJson(
+																					tool.args
+																				)}</pre>
 																		</div>
-																	{/if}
-																{:else if tool.toolType === 'exec_command'}
-																	<div class="tool-meta-grid">
-																		<div class="tool-meta-span">
-																			<div class="tool-meta-label">Command</div>
-																			<div class="tool-meta-value">
-																				{tool.details?.command ??
-																					tool.args?.command ??
-																					'Unknown command'}
+																		<div class="tool-output-block">
+																			<div class="tool-output-label">Details</div>
+																			<pre class="tool-output-pre bc-scrollbar">{prettyJson(
+																					tool.details
+																				)}</pre>
+																		</div>
+																		{#if tool.content}
+																			<div class="tool-output-block">
+																				<div class="tool-output-label">Content</div>
+																				<pre class="tool-output-pre bc-scrollbar">{tool.content}</pre>
 																			</div>
-																		</div>
-																		<div>
-																			<div class="tool-meta-label">Working directory</div>
-																			<div class="tool-meta-value">
-																				{tool.details?.cwd ?? tool.args?.cwd ?? '/workspace'}
-																			</div>
-																		</div>
-																		<div>
-																			<div class="tool-meta-label">Exit code</div>
-																			<div class="tool-meta-value">
-																				{tool.details?.exitCode ?? 'unknown'}
-																			</div>
-																		</div>
-																	</div>
+																		{/if}
+																	{/if}
+																</div>
+															{/if}
+														</div>
+													{/each}
+												</div>
+											{/if}
+										</div>
+									{/if}
+								{/snippet}
 
-																	{#if tool.details?.stdout}
-																		<div class="tool-output-block">
-																			<div class="tool-output-label">stdout</div>
-																			<pre class="tool-output-pre bc-scrollbar">{tool.details
-																					.stdout}</pre>
-																		</div>
-																	{/if}
+								{#each groupIntoBlocks(groupMessageParts(message.parts)) as block (getBlockKey(block))}
+									{#if block.type === 'text'}
+										<div class="assistant-section assistant-section-text">
+											<MarkdownMessage content={block.segment.part.content} />
+										</div>
+									{:else if block.segments.length === 1}
+										{@render segmentView(block.segments[0], false)}
+									{:else}
+										{@const blockStatus = getActivityBlockStatus(block.segments)}
+										{@const itemCount = getActivityBlockItemCount(block.segments)}
+										<div class="assistant-section activity-block">
+											<button
+												type="button"
+												class="tool-group-bar"
+												onclick={() => toggleActivityBlock(block.key)}
+											>
+												<div class="tool-group-bar-left">
+													<span
+														class={`tool-dot ${blockStatus === 'running' ? 'tool-dot-pending' : blockStatus === 'error' ? 'tool-dot-error' : 'tool-dot-completed'}`}
+													></span>
+													<span class="tool-group-bar-label">
+														{getActivityBlockLabel(block.segments)}
+													</span>
+												</div>
+												<div class="tool-group-bar-right">
+													<span class="tool-group-bar-count">
+														{itemCount}
+														{itemCount === 1 ? 'call' : 'calls'}
+													</span>
+													<svg
+														class="tool-group-chevron"
+														class:tool-group-chevron-open={activityBlockExpanded[block.key]}
+														width="12"
+														height="12"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2.5"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
+														<path d="m6 9 6 6 6-6" />
+													</svg>
+												</div>
+											</button>
 
-																	{#if tool.details?.stderr}
-																		<div class="tool-output-block">
-																			<div class="tool-output-label">stderr</div>
-																			<pre class="tool-output-pre bc-scrollbar">{tool.details
-																					.stderr}</pre>
-																		</div>
-																	{/if}
-
-																	{#if !tool.details?.stdout && !tool.details?.stderr}
-																		<div class="tool-output-block">
-																			<div class="tool-output-label">output</div>
-																			<pre class="tool-output-pre bc-scrollbar">
-																					{tool.content || 'No command output returned.'}
-																				</pre>
-																		</div>
-																	{/if}
-																{:else}
-																	<div class="tool-output-block">
-																		<div class="tool-output-label">Arguments</div>
-																		<pre class="tool-output-pre bc-scrollbar">{prettyJson(
-																				tool.args
-																			)}</pre>
-																	</div>
-																	<div class="tool-output-block">
-																		<div class="tool-output-label">Details</div>
-																		<pre class="tool-output-pre bc-scrollbar">{prettyJson(
-																				tool.details
-																			)}</pre>
-																	</div>
-																	{#if tool.content}
-																		<div class="tool-output-block">
-																			<div class="tool-output-label">Content</div>
-																			<pre class="tool-output-pre bc-scrollbar">{tool.content}</pre>
-																		</div>
-																	{/if}
-																{/if}
-															</div>
-														{/if}
-													</div>
-												{/each}
-											</div>
-										{/if}
-									</div>
+											{#if activityBlockExpanded[block.key]}
+												<div class="activity-block-panel" transition:slide={{ duration: 150 }}>
+													{#each block.segments as innerSegment (innerSegment.type === 'reasoning' ? innerSegment.part.id : getToolGroupKey(innerSegment.tools))}
+														{@render segmentView(innerSegment, true)}
+													{/each}
+												</div>
+											{/if}
+										</div>
 									{/if}
 								{/each}
 							</div>
