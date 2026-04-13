@@ -29,19 +29,37 @@ const assertCompatibleLink = ({
   }
 };
 
+const byNewestLink = (left: Doc<"v2_identityLinks">, right: Doc<"v2_identityLinks">) =>
+  right.linkedAt - left.linkedAt || right.createdAt - left.createdAt;
+
+const findDuplicateCompatibleLinks = ({
+  links,
+  canonical,
+}: {
+  links: Array<Doc<"v2_identityLinks">>;
+  canonical: Doc<"v2_identityLinks">;
+}) =>
+  links.filter(
+    (link) =>
+      link._id !== canonical._id &&
+      link.clerkUserId === canonical.clerkUserId &&
+      link.workosUserId === canonical.workosUserId,
+  );
+
 export const getCanonicalUserId = privateQuery({
   args: {
     workosUserId: v.string(),
   },
   handler: async (ctx, args) => {
-    const link = await ctx.db
+    const links = await ctx.db
       .query("v2_identityLinks")
       .withIndex(
         "by_workos_user_id",
         (query: IndexRangeBuilder<Doc<"v2_identityLinks">, ["workosUserId"]>) =>
           query.eq("workosUserId", args.workosUserId),
       )
-      .unique();
+      .collect();
+    const link = links.toSorted(byNewestLink)[0] ?? null;
 
     return {
       canonicalUserId: link?.clerkUserId ?? args.workosUserId,
@@ -60,49 +78,39 @@ export const upsert = privateMutation({
     status: linkStatusValidator,
   },
   handler: async (ctx, args) => {
-    const existingByWorkosUserId = await ctx.db
+    const linksByWorkosUserId = await ctx.db
       .query("v2_identityLinks")
       .withIndex(
         "by_workos_user_id",
         (query: IndexRangeBuilder<Doc<"v2_identityLinks">, ["workosUserId"]>) =>
           query.eq("workosUserId", args.workosUserId),
       )
-      .unique();
-    const existingByClerkUserId = await ctx.db
+      .collect();
+    const linksByClerkUserId = await ctx.db
       .query("v2_identityLinks")
       .withIndex(
         "by_clerk_user_id",
         (query: IndexRangeBuilder<Doc<"v2_identityLinks">, ["clerkUserId"]>) =>
           query.eq("clerkUserId", args.clerkUserId),
       )
-      .unique();
+      .collect();
+    const links = [...linksByWorkosUserId, ...linksByClerkUserId]
+      .filter(
+        (link, index, allLinks) =>
+          allLinks.findIndex((candidate) => candidate._id === link._id) === index,
+      )
+      .toSorted(byNewestLink);
 
-    if (
-      existingByWorkosUserId !== null &&
-      existingByClerkUserId !== null &&
-      existingByWorkosUserId._id !== existingByClerkUserId._id
-    ) {
-      throw new Error("Identity link conflict detected.");
-    }
-
-    if (existingByWorkosUserId !== null) {
+    for (const link of links) {
       assertCompatibleLink({
-        existing: existingByWorkosUserId,
-        clerkUserId: args.clerkUserId,
-        workosUserId: args.workosUserId,
-      });
-    }
-
-    if (existingByClerkUserId !== null) {
-      assertCompatibleLink({
-        existing: existingByClerkUserId,
+        existing: link,
         clerkUserId: args.clerkUserId,
         workosUserId: args.workosUserId,
       });
     }
 
     const now = Date.now();
-    const existing = existingByWorkosUserId ?? existingByClerkUserId;
+    const existing = links[0] ?? null;
 
     if (existing === null) {
       await ctx.db.insert("v2_identityLinks", {
@@ -121,6 +129,10 @@ export const upsert = privateMutation({
         linkedAt: now,
         status: args.status,
       });
+
+      for (const duplicate of findDuplicateCompatibleLinks({ links, canonical: existing })) {
+        await ctx.db.delete(duplicate._id);
+      }
     }
 
     return {

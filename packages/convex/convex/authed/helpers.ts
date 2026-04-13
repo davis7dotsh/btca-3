@@ -6,10 +6,13 @@ export const resolveAuthUser = async (
   ctx: Pick<QueryCtx | MutationCtx, "db">,
   workosUserId: string,
 ) => {
-  const identityLink = await ctx.db
+  const identityLinks = await ctx.db
     .query("v2_identityLinks")
     .withIndex("by_workos_user_id", (indexQuery) => indexQuery.eq("workosUserId", workosUserId))
-    .unique();
+    .collect();
+  const identityLink = identityLinks.toSorted(
+    (left, right) => right.linkedAt - left.linkedAt || right.createdAt - left.createdAt,
+  )[0];
 
   return {
     userId: identityLink?.clerkUserId ?? workosUserId,
